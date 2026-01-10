@@ -1,0 +1,15 @@
+go 1.24.11
+
+use (
+	./cmd/vibeaura
+	./internal/brain
+	./internal/connect
+	./internal/context
+	./internal/daemon
+	./internal/mcp
+	./internal/model
+	./internal/sys
+	./internal/vault
+	./pkg/vibe
+	./vibes/hello-world
+)
