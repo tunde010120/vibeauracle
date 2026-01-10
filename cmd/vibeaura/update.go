@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -22,6 +23,39 @@ type releaseInfo struct {
 	} `json:"assets"`
 }
 
+func getLatestRelease() (*releaseInfo, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var releases []releaseInfo
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, err
+	}
+
+	if len(releases) == 0 {
+		return nil, fmt.Errorf("no releases found")
+	}
+
+	return &releases[0], nil
+}
+
+// checkUpdateSilent checks for updates and prints a message if one is available
+func checkUpdateSilent() {
+	latest, err := getLatestRelease()
+	if err != nil {
+		return // Fail silently for background checks
+	}
+
+	if latest.TagName != Version {
+		fmt.Printf("\n✨ A new version of vibeaura is available: %s (current: %s)\n", latest.TagName, Version)
+		fmt.Println("👉 Run 'vibeaura update' to install it instantly.\n")
+	}
+}
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update vibeaura to the latest version",
@@ -29,23 +63,11 @@ var updateCmd = &cobra.Command{
 		fmt.Printf("Current version: %s\n", Version)
 		fmt.Println("Checking for updates...")
 
-		// Get latest release
-		resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
+		latest, err := getLatestRelease()
 		if err != nil {
 			return fmt.Errorf("checking for updates: %w", err)
 		}
-		defer resp.Body.Close()
 
-		var releases []releaseInfo
-		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-			return fmt.Errorf("decoding release info: %w", err)
-		}
-
-		if len(releases) == 0 {
-			return fmt.Errorf("no releases found")
-		}
-
-		latest := releases[0]
 		if latest.TagName == Version && Version != "dev" {
 			fmt.Println("vibeaura is already up to date!")
 			return nil
@@ -82,7 +104,7 @@ var updateCmd = &cobra.Command{
 		}
 		defer os.Remove(tmpFile.Name())
 
-		resp, err = http.Get(downloadURL)
+		resp, err := http.Get(downloadURL)
 		if err != nil {
 			return fmt.Errorf("downloading update: %w", err)
 		}
@@ -102,16 +124,12 @@ var updateCmd = &cobra.Command{
 		// Try to replace current binary
 		fmt.Println("Installing update...")
 		
-		// On Unix, we can rename/overwrite the running executable
-		// On Windows, this is harder, but for now we focus on frictionless Linux/macOS
-		
 		// Ensure the new binary is executable
 		if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
 			return fmt.Errorf("setting permissions on new binary: %w", err)
 		}
 
 		// Move temp file to current executable path
-		// We use a rename which is atomic on most Unix systems
 		if err := os.Rename(tmpFile.Name(), exePath); err != nil {
 			if strings.Contains(err.Error(), "permission denied") {
 				fmt.Printf("\nPermission denied. Please run the update with sudo:\n")
@@ -129,4 +147,3 @@ var updateCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(updateCmd)
 }
-
