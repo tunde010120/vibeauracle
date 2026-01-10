@@ -50,4 +50,3 @@ if ($env:Path -notlike "*$InstallDir*") {
 Write-Host "Successfully installed vibeauracle to $ExePath" -ForegroundColor Green
 Write-Host "You may need to restart your terminal for changes to take effect." -ForegroundColor Yellow
 & "$ExePath" --help
-

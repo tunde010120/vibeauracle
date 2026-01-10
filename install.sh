@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # vibeauracle Universal Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/nathfavour/vibeauraauracle/release/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.sh | sh
 
 set -e
 
-REPO="nathfavour/vibeauraauracle"
+REPO="nathfavour/vibeauracle"
 GITHUB_URL="https://github.com/$REPO"
 
 # Detect OS
@@ -59,7 +59,7 @@ else
     exit 1
 fi
 
-chmod +x vibe
+chmod +x vibeaura
 
 # Install binary
 INSTALL_DIR="/usr/local/bin"
@@ -76,4 +76,3 @@ fi
 
 echo "Successfully installed vibeauracle to $INSTALL_DIR/vibeaura"
 vibeaura --help
-
