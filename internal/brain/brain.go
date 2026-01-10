@@ -30,8 +30,12 @@ type Brain struct {
 }
 
 func New() *Brain {
+	// For now, use defaults for Ollama. 
+	// In production, these would come from config or environment variables.
+	ollamaProvider, _ := model.NewOllamaProvider("localhost:11434", "llama3")
+	
 	return &Brain{
-		model:   model.New(&model.OllamaProvider{}),
+		model:   model.New(ollamaProvider),
 		monitor: sys.NewMonitor(),
 		memory:  vcontext.NewMemory(),
 	}

@@ -15,22 +15,15 @@ type Model struct {
 	provider Provider
 }
 
+// New creates a new Model with the given provider
 func New(p Provider) *Model {
 	return &Model{provider: p}
 }
 
+// Generate uses the configured provider to generate a response
 func (m *Model) Generate(ctx context.Context, prompt string) (string, error) {
 	if m.provider == nil {
 		return "", fmt.Errorf("no provider configured")
 	}
 	return m.provider.Generate(ctx, prompt)
 }
-
-// OllamaProvider is a placeholder for Ollama integration
-type OllamaProvider struct{}
-
-func (p *OllamaProvider) Generate(ctx context.Context, prompt string) (string, error) {
-	// Actual implementation would call Ollama API
-	return "Ollama response to: " + prompt, nil
-}
-
