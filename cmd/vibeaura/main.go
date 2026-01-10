@@ -11,6 +11,7 @@ import (
 
 var (
 	Version = "dev"
+	Commit  = "none"
 )
 
 var rootCmd = &cobra.Command{
