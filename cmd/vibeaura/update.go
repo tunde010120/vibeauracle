@@ -96,10 +96,16 @@ func checkUpdateSilent() {
 		fmt.Printf("\n✨ A new version of vibeaura is available: %s", latest.TagName)
 		if len(remoteSHA) >= 7 {
 			fmt.Printf(" (%s)", remoteSHA[:7])
+		} else if remoteSHA != "" {
+			fmt.Printf(" (%s)", remoteSHA)
 		}
 		fmt.Printf(" (current: %s", Version)
-		if Commit != "none" && len(Commit) >= 7 {
-			fmt.Printf("-%s", Commit[:7])
+		if Commit != "none" {
+			if len(Commit) >= 7 {
+				fmt.Printf("-%s", Commit[:7])
+			} else {
+				fmt.Printf("-%s", Commit)
+			}
 		}
 		fmt.Println(")")
 		fmt.Println("👉 Run 'vibeaura update' to install it instantly.\n")

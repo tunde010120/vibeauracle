@@ -1,4 +1,4 @@
-module github.com/nathfavour/vibeauracle/vibeaura
+module github.com/nathfavour/vibeauracle/cmd/vibeaura
 
 go 1.24.4
 
