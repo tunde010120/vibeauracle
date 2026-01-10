@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/nathfavour/vibeauracle/sys"
 
 	"github.com/spf13/cobra"
@@ -142,13 +143,16 @@ func checkUpdateSilent() {
 
 	var latestSHA string
 	var latestTag string
+	var channel string
 
 	if useBeta {
 		latestSHA, _ = getBranchCommitSHA("master")
 		latestTag = "beta"
+		channel = "Beta (master)"
 	} else if buildFromSource {
 		latestSHA, _ = getBranchCommitSHA("release")
 		latestTag = "source"
+		channel = "Source (release)"
 	} else {
 		latest, err := getLatestRelease()
 		if err != nil {
@@ -159,23 +163,40 @@ func checkUpdateSilent() {
 		}
 		latestSHA = latest.ActualSHA
 		latestTag = latest.TagName
+		channel = "Stable"
 	}
 
 	if latestSHA != "" && latestSHA != Commit {
-		fmt.Printf("\n✨ A new version of vibeaura is available: %s", latestTag)
-		if len(latestSHA) >= 7 {
-			fmt.Printf(" (%s)", latestSHA[:7])
+		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)      // Bright Green
+		styleChannel := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Italic(true) // Bright Blue
+		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)      // Bright Yellow
+		styleDim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))                  // Gray
+
+		displayLatestSHA := latestSHA
+		if len(displayLatestSHA) >= 7 {
+			displayLatestSHA = displayLatestSHA[:7]
 		}
-		fmt.Printf(" (current: %s", Version)
-		if Commit != "none" {
-			displayCommit := Commit
-			if len(displayCommit) >= 7 {
-				displayCommit = displayCommit[:7]
-			}
-			fmt.Printf("-%s", displayCommit)
+
+		displayCurCommit := Commit
+		if len(displayCurCommit) >= 7 {
+			displayCurCommit = displayCurCommit[:7]
 		}
-		fmt.Println(")")
-		fmt.Println("👉 Run 'vibeaura update' to install it instantly.\n")
+
+		fmt.Println()
+		fmt.Printf("✨ %s %s %s\n",
+			styleNew.Render("A new update is available on the"),
+			styleChannel.Render(channel),
+			styleNew.Render("channel!"),
+		)
+		fmt.Printf("   %s %s %s %s\n",
+			styleDim.Render("Latest:"), displayLatestSHA,
+			styleDim.Render("Current:"), displayCurCommit,
+		)
+		fmt.Printf("   👉 Run %s %s\n",
+			styleCmd.Render("vibeaura update"),
+			styleDim.Render("to stay on the bleeding edge."),
+		)
+		fmt.Println()
 	}
 }
 
