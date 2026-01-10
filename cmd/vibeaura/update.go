@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
+
+	"github.com/nathfavour/vibeauracle/sys"
 
 	"github.com/spf13/cobra"
 )
@@ -97,27 +99,156 @@ func checkUpdateSilent() {
 		fmt.Printf("\n✨ A new version of vibeaura is available: %s", latest.TagName)
 		if len(remoteSHA) >= 7 {
 			fmt.Printf(" (%s)", remoteSHA[:7])
+		} else if remoteSHA != "" {
+			fmt.Printf(" (%s)", remoteSHA)
 		}
 		fmt.Printf(" (current: %s", Version)
-		if Commit != "none" && len(Commit) >= 7 {
-			fmt.Printf("-%s", Commit[:7])
+		if Commit != "none" {
+			if len(Commit) >= 7 {
+				fmt.Printf("-%s", Commit[:7])
+			} else {
+				fmt.Printf("-%s", Commit)
+			}
 		}
 		fmt.Println(")")
 		fmt.Println("👉 Run 'vibeaura update' to install it instantly.\n")
 	}
 }
 
+func installBinary(srcPath string) error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("getting executable path: %w", err)
+	}
+
+	fmt.Println("Installing binary...")
+	
+	// Ensure the new binary is executable
+	if err := os.Chmod(srcPath, 0755); err != nil {
+		return fmt.Errorf("setting permissions on new binary: %w", err)
+	}
+
+	// Move temp file to current executable path
+	if err := os.Rename(srcPath, exePath); err != nil {
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("could not replace running binary on Windows. Please download and install manually.")
+		}
+
+		// If rename fails (e.g. permission denied or cross-device), try sudo mv
+		fmt.Println("Permission denied or cross-device move. Trying with sudo...")
+		
+		sudoCmd := exec.Command("sudo", "mv", srcPath, exePath)
+		sudoCmd.Stdout = os.Stdout
+		sudoCmd.Stderr = os.Stderr
+		sudoCmd.Stdin = os.Stdin // For password prompt
+		
+		if err := sudoCmd.Run(); err != nil {
+			return fmt.Errorf("replacing binary with sudo: %w", err)
+		}
+	}
+
+	// Ensure the final binary is executable
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(exePath, 0755); err != nil {
+			exec.Command("sudo", "chmod", "+x", exePath).Run()
+		}
+	}
+
+	return nil
+}
+
+func updateFromSource(branch string, cm *sys.ConfigManager) error {
+	// Check if Go is installed
+	if _, err := exec.LookPath("go"); err != nil {
+		return fmt.Errorf("Go is not installed. Source build requires Go.")
+	}
+	// Check if git is installed
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("Git is not installed. Source build requires Git.")
+	}
+
+	sourceRoot := cm.GetDataPath(filepath.Join("source", branch))
+	if err := os.MkdirAll(filepath.Dir(sourceRoot), 0755); err != nil {
+		return fmt.Errorf("creating source directory: %w", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(sourceRoot, ".git")); os.IsNotExist(err) {
+		fmt.Printf("Cloning %s branch to %s...\n", branch, sourceRoot)
+		cloneCmd := exec.Command("git", "clone", "-b", branch, "https://github.com/"+repo+".git", sourceRoot)
+		cloneCmd.Stdout = os.Stdout
+		cloneCmd.Stderr = os.Stderr
+		if err := cloneCmd.Run(); err != nil {
+			os.RemoveAll(sourceRoot)
+			return fmt.Errorf("cloning repo: %w", err)
+		}
+	} else {
+		fmt.Printf("Updating local source in %s...\n", sourceRoot)
+		pullCmd := exec.Command("git", "-C", sourceRoot, "pull", "origin", branch)
+		pullCmd.Stdout = os.Stdout
+		pullCmd.Stderr = os.Stderr
+		if err := pullCmd.Run(); err != nil {
+			return fmt.Errorf("pulling updates: %w", err)
+		}
+	}
+
+	fmt.Println("Building from source...")
+	buildOut := filepath.Join(sourceRoot, "vibeaura_new")
+	buildCmd := exec.Command("go", "build", "-o", buildOut, "./cmd/vibeaura")
+	buildCmd.Dir = sourceRoot
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	
+	if err := buildCmd.Run(); err != nil {
+		fmt.Println("\n❌ Build failed! The beta version might be unstable.")
+		return fmt.Errorf("building from source: %w", err)
+	}
+
+	if err := installBinary(buildOut); err != nil {
+		return err
+	}
+
+	fmt.Printf("Successfully updated to bleeding-edge %s from source!\n", branch)
+	return nil
+}
+
+var (
+	betaFlag bool
+)
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update vibeaura to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cm, err := sys.NewConfigManager()
+		if err != nil {
+			return fmt.Errorf("initializing config: %w", err)
+		}
+		cfg, err := cm.Load()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		useBeta := betaFlag || cfg.Update.Beta
+		buildFromSource := cfg.Update.BuildFromSource || useBeta
+
 		curCommit := Commit
 		if len(curCommit) > 7 {
 			curCommit = curCommit[:7]
 		}
 		fmt.Printf("Current version: %s (commit: %s)\n", Version, curCommit)
-		fmt.Println("Checking for updates...")
 
+		if buildFromSource {
+			branch := "release"
+			if useBeta {
+				branch = "master"
+				fmt.Println("🚀 Entering Beta Mode: Building bleeding-edge from master...")
+			} else {
+				fmt.Println("🛠️ Building from source (release branch)...")
+			}
+			return updateFromSource(branch, cm)
+		}
+
+		fmt.Println("Checking for updates...")
 		latest, err := getLatestRelease()
 		if err != nil {
 			return fmt.Errorf("checking for updates: %w", err)
@@ -137,6 +268,8 @@ var updateCmd = &cobra.Command{
 		}
 
 		fmt.Printf("New version available: %s (commit: %s)\n", latest.TagName, remoteVer)
+
+		// ... (rest of the download/install logic)
 
 		// Determine target asset name
 		goos := runtime.GOOS
@@ -178,45 +311,8 @@ var updateCmd = &cobra.Command{
 		}
 		tmpFile.Close()
 
-		// Get current executable path
-		exePath, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("getting executable path: %w", err)
-		}
-
-		// Try to replace current binary
-		fmt.Println("Installing update...")
-		
-		// Ensure the new binary is executable
-		if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
-			return fmt.Errorf("setting permissions on new binary: %w", err)
-		}
-
-		// Move temp file to current executable path
-		if err := os.Rename(tmpFile.Name(), exePath); err != nil {
-			if runtime.GOOS == "windows" {
-				return fmt.Errorf("could not replace running binary on Windows. Please download and install manually.")
-			}
-
-			// If rename fails (e.g. permission denied or cross-device), try sudo mv
-			fmt.Println("Permission denied or cross-device move. Trying with sudo...")
-			
-			// We use 'sudo mv' because it's the most frictionless way to handle /usr/local/bin
-			sudoCmd := exec.Command("sudo", "mv", tmpFile.Name(), exePath)
-			sudoCmd.Stdout = os.Stdout
-			sudoCmd.Stderr = os.Stderr
-			sudoCmd.Stdin = os.Stdin // For password prompt
-			
-			if err := sudoCmd.Run(); err != nil {
-				return fmt.Errorf("replacing binary with sudo: %w", err)
-			}
-		}
-
-		// Ensure the final binary is executable
-		if runtime.GOOS != "windows" {
-			if err := os.Chmod(exePath, 0755); err != nil {
-				exec.Command("sudo", "chmod", "+x", exePath).Run()
-			}
+		if err := installBinary(tmpFile.Name()); err != nil {
+			return err
 		}
 
 		fmt.Printf("Successfully updated to %s!\n", latest.TagName)
@@ -225,5 +321,6 @@ var updateCmd = &cobra.Command{
 }
 
 func init() {
+	updateCmd.Flags().BoolVar(&betaFlag, "beta", false, "Install bleeding-edge version from source (master branch)")
 	rootCmd.AddCommand(updateCmd)
 }
