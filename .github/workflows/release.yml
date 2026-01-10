@@ -71,7 +71,8 @@ jobs:
               fi
 
               echo "Building for $GOOS/$GOARCH..."
-              GOWORK=$GITHUB_WORKSPACE/go.work CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w" -trimpath -o "dist/$output_name" ./cmd/vibeaura
+              # Use the module path directly. Go will find the workspace automatically from the root.
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w" -trimpath -o "dist/$output_name" github.com/nathfavour/vibeauracle/vibeaura
             ) &
             pids+=($!)
           done
