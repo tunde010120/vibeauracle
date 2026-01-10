@@ -83,9 +83,13 @@ if [ "$OS" = "android" ]; then
         echo "# vibeauracle path" >> "$SHELL_RC"
         echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$SHELL_RC"
         echo "Added $INSTALL_DIR to $SHELL_RC"
-        echo "Please restart your shell or run: source $SHELL_RC"
     fi
-else
+    
+    # Make it available immediately for this script and mention sourcing
+    export PATH="$PATH:$INSTALL_DIR"
+    echo "Please restart your shell or run: source $SHELL_RC"
+    vibeaura --help
+fi
     INSTALL_DIR="/usr/local/bin"
     if [ -w "$INSTALL_DIR" ]; then
         mv vibeaura "$INSTALL_DIR/vibeaura"
