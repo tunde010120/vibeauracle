@@ -1,6 +1,6 @@
 module github.com/nathfavour/vibeauracle/vault
 
-go 1.25.5
+go 1.24
 
 require github.com/99designs/keyring v1.2.2
 

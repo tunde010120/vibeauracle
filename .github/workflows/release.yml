@@ -23,11 +23,30 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24' # Matching architecture specs
+          go-version: '1.24'
+          cache: true
+          cache-dependency-path: "**/*.sum"
+
+      - name: Get Go cache paths
+        id: go-cache-paths
+        run: |
+          echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
+          echo "go-mod=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
+
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-build }}
+            ${{ steps.go-cache-paths.outputs.go-mod }}
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum', 'go.work') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Build binaries
         run: |
           mkdir -p dist
+          # Build in parallel using xargs or &
           platforms=(
             "linux/amd64"
             "linux/arm64"
@@ -39,20 +58,23 @@ jobs:
           )
 
           for platform in "${platforms[@]}"; do
-            platform_split=(${platform//\// })
-            GOOS=${platform_split[0]}
-            GOARCH=${platform_split[1]}
-            
-            output_name="vibe-${GOOS}-${GOARCH}"
-            if [ "$GOOS" == "windows" ]; then
-              output_name+=".exe"
-            fi
+            (
+              platform_split=(${platform//\// })
+              GOOS=${platform_split[0]}
+              GOARCH=${platform_split[1]}
+              
+              output_name="vibe-${GOOS}-${GOARCH}"
+              if [ "$GOOS" == "windows" ]; then
+                output_name+=".exe"
+              fi
 
-            echo "Building for $GOOS/$GOARCH..."
-            # Building from the cmd/vibe directory where the main package is
-            # We use -C to run from root but point to the module
-            GOOS=$GOOS GOARCH=$GOARCH go build -o "dist/$output_name" ./cmd/vibe
+              echo "Building for $GOOS/$GOARCH..."
+              # Explicitly use the module name to ensure workspace awareness
+              # Use CGO_ENABLED=0 for easy cross-compilation and -trimpath for cleaner binaries
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w" -trimpath -o "dist/$output_name" github.com/nathfavour/vibeauracle/vibe
+            ) &
           done
+          wait
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
