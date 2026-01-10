@@ -63,8 +63,9 @@ jobs:
             fi
 
             VERSION=${{ github.ref_name == 'release' && 'latest' || github.ref_name }}
-            echo "Building for $GOOS/$GOARCH (version $VERSION)..."
-            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.Version=$VERSION" -trimpath -o "dist/$output_name" ./cmd/vibeaura
+            COMMIT=${{ github.sha }}
+            echo "Building for $GOOS/$GOARCH (version $VERSION, commit $COMMIT)..."
+            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.Version=$VERSION -X main.Commit=$COMMIT" -trimpath -o "dist/$output_name" ./cmd/vibeaura
           done
 
       - name: Create Release

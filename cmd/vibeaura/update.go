@@ -16,8 +16,9 @@ import (
 const repo = "nathfavour/vibeauracle"
 
 type releaseInfo struct {
-	TagName string `json:"tag_name"`
-	Assets  []struct {
+	TagName         string `json:"tag_name"`
+	TargetCommitish string `json:"target_commitish"`
+	Assets          []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
@@ -43,6 +44,23 @@ func getLatestRelease() (*releaseInfo, error) {
 	return &releases[0], nil
 }
 
+func isUpdateAvailable(latest *releaseInfo) bool {
+	if Version == "dev" {
+		return true // Always allow update from dev
+	}
+
+	// If tags match, check the commit SHA
+	if latest.TagName == Version {
+		// If both are 'latest', compare the SHAs
+		if Version == "latest" {
+			return latest.TargetCommitish != Commit
+		}
+		return false
+	}
+
+	return true
+}
+
 // checkUpdateSilent checks for updates and prints a message if one is available
 func checkUpdateSilent() {
 	latest, err := getLatestRelease()
@@ -50,8 +68,16 @@ func checkUpdateSilent() {
 		return // Fail silently for background checks
 	}
 
-	if latest.TagName != Version {
-		fmt.Printf("\n✨ A new version of vibeaura is available: %s (current: %s)\n", latest.TagName, Version)
+	if isUpdateAvailable(latest) {
+		fmt.Printf("\n✨ A new version of vibeaura is available: %s", latest.TagName)
+		if Version == "latest" && latest.TargetCommitish != "" {
+			fmt.Printf(" (%s)", latest.TargetCommitish[:7])
+		}
+		fmt.Printf(" (current: %s", Version)
+		if Commit != "none" {
+			fmt.Printf("-%s", Commit[:7])
+		}
+		fmt.Println(")")
 		fmt.Println("👉 Run 'vibeaura update' to install it instantly.\n")
 	}
 }
@@ -60,7 +86,7 @@ var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update vibeaura to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("Current version: %s\n", Version)
+		fmt.Printf("Current version: %s (commit: %s)\n", Version, Commit)
 		fmt.Println("Checking for updates...")
 
 		latest, err := getLatestRelease()
@@ -68,12 +94,16 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("checking for updates: %w", err)
 		}
 
-		if latest.TagName == Version && Version != "dev" {
+		if !isUpdateAvailable(latest) {
 			fmt.Println("vibeaura is already up to date!")
 			return nil
 		}
 
-		fmt.Printf("New version available: %s\n", latest.TagName)
+		fmt.Printf("New version available: %s", latest.TagName)
+		if latest.TagName == "latest" {
+			fmt.Printf(" (commit: %s)", latest.TargetCommitish)
+		}
+		fmt.Println()
 
 		// Determine target asset name
 		goos := runtime.GOOS

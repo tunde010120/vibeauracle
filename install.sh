@@ -66,6 +66,7 @@ if [ "$OS" = "android" ]; then
     INSTALL_DIR="$HOME/bin"
     mkdir -p "$INSTALL_DIR"
     mv vibeaura "$INSTALL_DIR/vibeaura"
+    chmod +x "$INSTALL_DIR/vibeaura"
     echo "Successfully installed vibeauracle to $INSTALL_DIR/vibeaura"
 
     # Auto-add to PATH
