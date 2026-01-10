@@ -89,7 +89,7 @@ if [ "$OS" = "android" ]; then
     export PATH="$PATH:$INSTALL_DIR"
     echo "Please restart your shell or run: source $SHELL_RC"
     vibeaura --help
-fi
+else
     INSTALL_DIR="/usr/local/bin"
     if [ -w "$INSTALL_DIR" ]; then
         mv vibeaura "$INSTALL_DIR/vibeaura"
