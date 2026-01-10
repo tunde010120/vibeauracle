@@ -7,9 +7,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	Version = "dev"
+)
+
 var rootCmd = &cobra.Command{
-	Use:   "vibeaura",
-	Short: "vibeauracle - Distributed, System-Intimate AI Engineering Ecosystem",
+	Use:     "vibeaura",
+	Version: Version,
+	Short:   "vibeauracle - Distributed, System-Intimate AI Engineering Ecosystem",
 	Long: `vibeauracle is a keyboard-centric interface that unifies the terminal, 
 the IDE, and the AI assistant into a single system-aware experience.`,
 	Run: func(cmd *cobra.Command, args []string) {
