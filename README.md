@@ -28,6 +28,12 @@ docker-compose up -d
 docker-compose run vibeaura chat
 ```
 
+## 🧪 Testing
+Run the unit tests to ensure everything is working correctly:
+```bash
+go test ./internal/brain/... ./internal/model/... ./internal/sys/...
+```
+
 ## 🧩 Supported Platforms
 * **Linux**: amd64, arm64 (Arch, Debian, etc.)
 * **macOS**: Apple Silicon (M1/M2/M3), Intel
