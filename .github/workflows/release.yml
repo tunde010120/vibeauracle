@@ -76,7 +76,7 @@ jobs:
               output_name+=".exe"
             fi
 
-            VERSION=${{ github.ref_name == 'release' && format('latest-{0}', github.sha) || github.ref_name }}
+            VERSION=${{ github.ref_name == 'release' && 'latest' || github.ref_name }}
             echo "Building for $GOOS/$GOARCH (version $VERSION)..."
             CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.Version=$VERSION" -trimpath -o "dist/$output_name" ./cmd/vibeaura
           done
@@ -86,10 +86,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/release'
         with:
           files: dist/*
-          tag_name: ${{ github.ref_name == 'release' && format('latest-{0}', github.sha) || github.ref_name }}
-          name: ${{ github.ref_name == 'release' && format('Release (latest-{0})', github.sha) || github.ref_name }}
+          tag_name: ${{ github.ref_name == 'release' && 'latest' || github.ref_name }}
+          name: ${{ github.ref_name == 'release' && 'Latest Pre-release' || github.ref_name }}
           generate_release_notes: true
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/release' }}
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
