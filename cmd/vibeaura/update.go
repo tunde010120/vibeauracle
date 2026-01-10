@@ -112,10 +112,15 @@ func checkUpdateSilent() {
 	}
 }
 
+var (
+	betaFlag bool
+)
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update vibeaura to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// ... logic will be added here
 		curCommit := Commit
 		if len(curCommit) > 7 {
 			curCommit = curCommit[:7]
@@ -230,5 +235,6 @@ var updateCmd = &cobra.Command{
 }
 
 func init() {
+	updateCmd.Flags().BoolVar(&betaFlag, "beta", false, "Install bleeding-edge version from source (master branch)")
 	rootCmd.AddCommand(updateCmd)
 }
