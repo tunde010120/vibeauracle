@@ -29,4 +29,3 @@ EXPOSE 50051
 # Default command
 ENTRYPOINT ["vibeaura"]
 CMD ["--help"]
-

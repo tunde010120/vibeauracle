@@ -25,7 +25,7 @@ iex (irm https://raw.githubusercontent.com/nathfavour/vibeauracle/release/instal
 You can also run **vibeauracle** in a containerized environment:
 ```bash
 docker-compose up -d
-docker-compose run vibeauraaura chat
+docker-compose run vibeaura chat
 ```
 
 ## 🧩 Supported Platforms
@@ -45,4 +45,3 @@ For deep technical details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 🤝 Contributing
 We love community "Vibes"! Check out [CONTRIBUTING.md](./CONTRIBUTING.md) to see how you can add your own agent skills and plugins.
-
