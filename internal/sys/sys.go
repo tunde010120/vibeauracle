@@ -2,6 +2,7 @@ package sys
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -11,6 +12,7 @@ import (
 type Snapshot struct {
 	CPUUsage    float64
 	MemoryUsage float64
+	WorkingDir  string
 }
 
 // Monitor provides system awareness
@@ -32,9 +34,12 @@ func (m *Monitor) GetSnapshot() (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("getting virtual memory: %w", err)
 	}
 
+	wd, _ := os.Getwd()
+
 	return Snapshot{
 		CPUUsage:    c[0],
 		MemoryUsage: vm.UsedPercent,
+		WorkingDir:  wd,
 	}, nil
 }
 

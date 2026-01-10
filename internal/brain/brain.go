@@ -45,15 +45,15 @@ func New() *Brain {
 func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 	// 1. Perceive: Receive request + SystemSnapshot
 	snapshot, _ := b.monitor.GetSnapshot()
-	fmt.Printf("Perceiving request: %s (System: CPU %.2f%%, Mem %.2f%%)\n", 
-		req.Content, snapshot.CPUUsage, snapshot.MemoryUsage)
+	fmt.Printf("Perceiving request: %s (System: CPU %.2f%%, Mem %.2f%%, CWD: %s)\n",
+		req.Content, snapshot.CPUUsage, snapshot.MemoryUsage, snapshot.WorkingDir)
 
 	// 2. Recall (RAG/Context)
 	snippets, _ := b.memory.Recall(req.Content)
 	contextStr := strings.Join(snippets, "\n")
-	
+
 	// 3. Plan & Execute via Model
-	augmentedPrompt := fmt.Sprintf("Context:\n%s\n\nUser Request: %s", contextStr, req.Content)
+	augmentedPrompt := fmt.Sprintf("Context:\n%s\n\nSystem CWD: %s\nUser Request: %s", contextStr, snapshot.WorkingDir, req.Content)
 	resp, err := b.model.Generate(ctx, augmentedPrompt)
 	if err != nil {
 		return Response{}, fmt.Errorf("generating response: %w", err)

@@ -1,30 +1,9 @@
 package main
 
 import (
-	"fmt"
-	"os"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nathfavour/vibeauracle/brain"
-	"github.com/spf13/cobra"
 )
-
-var chatCmd = &cobra.Command{
-	Use:   "chat",
-	Short: "Start the vibeauracle TUI session",
-	Run: func(cmd *cobra.Command, args []string) {
-		b := brain.New()
-		p := tea.NewProgram(initialModel(b))
-		if _, err := p.Run(); err != nil {
-			fmt.Printf("Alas, there's been an error: %v", err)
-			os.Exit(1)
-		}
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(chatCmd)
-}
 
 type model struct {
 	choices  []string

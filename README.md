@@ -25,7 +25,7 @@ iex (irm https://raw.githubusercontent.com/nathfavour/vibeauracle/release/instal
 You can also run **vibeauracle** in a containerized environment:
 ```bash
 docker-compose up -d
-docker-compose run vibeaura chat
+docker-compose run vibeaura
 ```
 
 ## 🧪 Testing
@@ -41,9 +41,9 @@ go test ./internal/brain/... ./internal/model/... ./internal/sys/...
 * **Android**: arm64 (via Termux)
 
 ## 🛠️ Getting Started
-Once installed, start a chat session:
+Once installed, start a session:
 ```bash
-vibeaura chat
+vibeaura
 ```
 
 ## 🏗️ Architecture

@@ -47,7 +47,7 @@ The codebase is split into 9 Core Modules, coordinated by a root `go.work` file.
 
 | Module Directory | Package Name | Responsibility | Key Dependencies |
 |---|---|---|---|
-| `cmd/vibeaura` | `vibeaura-cli` | Entry point. Routes commands via Cobra and renders the TUI via Bubble Tea. | `cobra`, `bubbletea`, `lipgloss` |
+| `cmd/vibeaura` | `vibeaura-cli` | Entry point. Starts the TUI session by default. Routes other commands via Cobra. | `cobra`, `bubbletea`, `lipgloss` |
 | `internal/brain` | `vibe-brain` | The Core. The cognitive orchestrator. Manages the "Plan-Execute-Reflect" loop and Agent state. | None (Pure Logic) |
 | `internal/model` | `vibe-model` | Universal AI Connector. Abstractions for streaming, tokenizing, and provider switching. | `langchaingo`, `ollama-go` |
 | `internal/context` | `vibe-context` | Memory & RAG. Handles vector embeddings, project indexing, and sliding windows. | `chroma-go` / `sqlite-vec` |
@@ -74,6 +74,7 @@ To allow for distributed growth and community contributions, we maintain public 
 The `vibe-brain` module does not just "chat." It implements a recursive agentic loop.
 
 *   **Perceive:** The Brain receives a `UserRequest` + `SystemSnapshot` (from `vibe-sys`).
+    *   *System Insight:* It knows the current working directory (CWD) and resource usage.
     *   *Check:* "Is VRAM > 9?" -> If yes, switch to small model or cloud.
 *   **Recall:** Queries `vibe-context` for relevant code snippets or past architectural decisions.
 *   **Plan:** Generates a Chain of Thought (CoT).
