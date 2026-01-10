@@ -28,6 +28,12 @@ type releaseInfo struct {
 	} `json:"assets"`
 }
 
+type metadata struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Date    string `json:"date"`
+}
+
 func getLatestRelease() (*releaseInfo, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
@@ -47,7 +53,22 @@ func getLatestRelease() (*releaseInfo, error) {
 
 	latest := releases[0]
 
-	// Fetch actual SHA for the tag to avoid 'master' or 'release' branch name issues
+	// Try to fetch metadata.json from assets for precise versioning
+	for _, asset := range latest.Assets {
+		if asset.Name == "metadata.json" {
+			metaResp, err := client.Get(asset.BrowserDownloadURL)
+			if err == nil {
+				defer metaResp.Body.Close()
+				var m metadata
+				if err := json.NewDecoder(metaResp.Body).Decode(&m); err == nil && m.Commit != "" {
+					latest.ActualSHA = m.Commit
+					return &latest, nil
+				}
+			}
+		}
+	}
+
+	// Fallback to tag-based SHA resolution if metadata.json is missing
 	tagResp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/git/ref/tags/%s", repo, latest.TagName))
 	if err == nil {
 		defer tagResp.Body.Close()
@@ -65,26 +86,35 @@ func getLatestRelease() (*releaseInfo, error) {
 }
 
 func isUpdateAvailable(latest *releaseInfo) bool {
+	// If we are in a dev build, we don't automatically suggest updates unless it's a forced check
+	// This avoids the "dumb" behavior of dev always suggesting updates.
 	if Version == "dev" {
-		return true // Always allow update from dev
+		return false 
 	}
 
-	remoteVer := latest.ActualSHA
-	if remoteVer == "" {
-		remoteVer = latest.TargetCommitish
-	}
-
-	// If tags differ, update is available
-	if latest.TagName != Version {
-		return true
+	remoteSHA := latest.ActualSHA
+	if remoteSHA == "" {
+		// If we still don't have a SHA, we can't reliably say there's an update
+		// unless the tag name is different.
+		return latest.TagName != Version
 	}
 
 	// If tags match (e.g. both are 'latest'), compare SHAs
-	return remoteVer != Commit
+	if latest.TagName == Version {
+		return remoteSHA != Commit
+	}
+
+	// Otherwise, tags differ, so update is available
+	return true
 }
 
 // checkUpdateSilent checks for updates and prints a message if one is available
 func checkUpdateSilent() {
+	// Don't show update notification for dev builds
+	if Version == "dev" {
+		return
+	}
+
 	latest, err := getLatestRelease()
 	if err != nil {
 		return // Fail silently for background checks
@@ -254,7 +284,7 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("checking for updates: %w", err)
 		}
 
-		if !isUpdateAvailable(latest) {
+		if !isUpdateAvailable(latest) && Version != "dev" {
 			fmt.Println("vibeaura is already up to date!")
 			return nil
 		}
@@ -263,11 +293,13 @@ var updateCmd = &cobra.Command{
 		if remoteVer == "" {
 			remoteVer = latest.TargetCommitish
 		}
-		if len(remoteVer) > 7 {
-			remoteVer = remoteVer[:7]
+		
+		displaySHA := remoteVer
+		if len(displaySHA) > 7 {
+			displaySHA = displaySHA[:7]
 		}
 
-		fmt.Printf("New version available: %s (commit: %s)\n", latest.TagName, remoteVer)
+		fmt.Printf("New version available: %s (commit: %s)\n", latest.TagName, displaySHA)
 
 		// ... (rest of the download/install logic)
 
