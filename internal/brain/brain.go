@@ -8,6 +8,7 @@ import (
 	vcontext "github.com/nathfavour/vibeauracle/context"
 	"github.com/nathfavour/vibeauracle/model"
 	"github.com/nathfavour/vibeauracle/sys"
+	"github.com/nathfavour/vibeauracle/auth"
 )
 
 // Request represents a user request or system trigger
@@ -28,6 +29,7 @@ type Brain struct {
 	monitor *sys.Monitor
 	fs      sys.FS
 	config  *sys.Config
+	auth    *auth.Handler
 	memory  *vcontext.Memory
 }
 
@@ -49,6 +51,7 @@ func New() *Brain {
 		monitor: sys.NewMonitor(),
 		fs:      sys.NewLocalFS(""),
 		config:  cfg,
+		auth:    auth.NewHandler(),
 		memory:  vcontext.NewMemory(),
 	}
 }
@@ -67,6 +70,18 @@ func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 	// 3. Plan & Execute via Model
 	augmentedPrompt := fmt.Sprintf("Context:\n%s\n\nSystem CWD: %s\nCapabilities: File CRUD (Read, Write, Delete, List)\nUser Request: %s", 
 		contextStr, snapshot.WorkingDir, req.Content)
+	
+	// Pre-execution Security Check
+	decision := b.auth.Check(auth.Request{
+		Action:   auth.ActionFSWrite,
+		Resource: "project_files",
+		Context:  req.Content,
+	})
+	
+	if decision == auth.DecisionDeny {
+		return Response{Content: "Operation denied by security policy."}, nil
+	}
+
 	resp, err := b.model.Generate(ctx, augmentedPrompt)
 	if err != nil {
 		return Response{}, fmt.Errorf("generating response: %w", err)
