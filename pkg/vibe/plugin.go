@@ -2,8 +2,8 @@ package vibe
 
 import "context"
 
-// Plugin is the interface that community plugins must implement.
-type Plugin interface {
+// Vibe is the interface that community vibes must implement.
+type Vibe interface {
 	Name() string
 	Description() string
 	Execute(ctx context.Context, args map[string]interface{}) (string, error)
