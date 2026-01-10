@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ const repo = "nathfavour/vibeauracle"
 type releaseInfo struct {
 	TagName         string `json:"tag_name"`
 	TargetCommitish string `json:"target_commitish"`
+	ActualSHA       string `json:"-"`
 	Assets          []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
@@ -25,7 +27,7 @@ type releaseInfo struct {
 }
 
 func getLatestRelease() (*releaseInfo, error) {
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
 	if err != nil {
 		return nil, err
@@ -41,7 +43,23 @@ func getLatestRelease() (*releaseInfo, error) {
 		return nil, fmt.Errorf("no releases found")
 	}
 
-	return &releases[0], nil
+	latest := releases[0]
+
+	// Fetch actual SHA for the tag to avoid 'master' or 'release' branch name issues
+	tagResp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/git/ref/tags/%s", repo, latest.TagName))
+	if err == nil {
+		defer tagResp.Body.Close()
+		var tagInfo struct {
+			Object struct {
+				SHA string `json:"sha"`
+			} `json:"object"`
+		}
+		if err := json.NewDecoder(tagResp.Body).Decode(&tagInfo); err == nil && tagInfo.Object.SHA != "" {
+			latest.ActualSHA = tagInfo.Object.SHA
+		}
+	}
+
+	return &latest, nil
 }
 
 func isUpdateAvailable(latest *releaseInfo) bool {
@@ -49,16 +67,18 @@ func isUpdateAvailable(latest *releaseInfo) bool {
 		return true // Always allow update from dev
 	}
 
-	// If tags match, check the commit SHA
-	if latest.TagName == Version {
-		// If both are 'latest', compare the SHAs
-		if Version == "latest" {
-			return latest.TargetCommitish != Commit
-		}
-		return false
+	remoteVer := latest.ActualSHA
+	if remoteVer == "" {
+		remoteVer = latest.TargetCommitish
 	}
 
-	return true
+	// If tags differ, update is available
+	if latest.TagName != Version {
+		return true
+	}
+
+	// If tags match (e.g. both are 'latest'), compare SHAs
+	return remoteVer != Commit
 }
 
 // checkUpdateSilent checks for updates and prints a message if one is available
@@ -69,12 +89,17 @@ func checkUpdateSilent() {
 	}
 
 	if isUpdateAvailable(latest) {
+		remoteSHA := latest.ActualSHA
+		if remoteSHA == "" {
+			remoteSHA = latest.TargetCommitish
+		}
+
 		fmt.Printf("\n✨ A new version of vibeaura is available: %s", latest.TagName)
-		if Version == "latest" && latest.TargetCommitish != "" {
-			fmt.Printf(" (%s)", latest.TargetCommitish[:7])
+		if len(remoteSHA) >= 7 {
+			fmt.Printf(" (%s)", remoteSHA[:7])
 		}
 		fmt.Printf(" (current: %s", Version)
-		if Commit != "none" {
+		if Commit != "none" && len(Commit) >= 7 {
 			fmt.Printf("-%s", Commit[:7])
 		}
 		fmt.Println(")")
@@ -86,7 +111,11 @@ var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update vibeaura to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("Current version: %s (commit: %s)\n", Version, Commit)
+		curCommit := Commit
+		if len(curCommit) > 7 {
+			curCommit = curCommit[:7]
+		}
+		fmt.Printf("Current version: %s (commit: %s)\n", Version, curCommit)
 		fmt.Println("Checking for updates...")
 
 		latest, err := getLatestRelease()
@@ -99,11 +128,15 @@ var updateCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Printf("New version available: %s", latest.TagName)
-		if latest.TagName == "latest" {
-			fmt.Printf(" (commit: %s)", latest.TargetCommitish)
+		remoteVer := latest.ActualSHA
+		if remoteVer == "" {
+			remoteVer = latest.TargetCommitish
 		}
-		fmt.Println()
+		if len(remoteVer) > 7 {
+			remoteVer = remoteVer[:7]
+		}
+
+		fmt.Printf("New version available: %s (commit: %s)\n", latest.TagName, remoteVer)
 
 		// Determine target asset name
 		goos := runtime.GOOS
@@ -161,12 +194,29 @@ var updateCmd = &cobra.Command{
 
 		// Move temp file to current executable path
 		if err := os.Rename(tmpFile.Name(), exePath); err != nil {
-			if strings.Contains(err.Error(), "permission denied") {
-				fmt.Printf("\nPermission denied. Please run the update with sudo:\n")
-				fmt.Printf("sudo vibeaura update\n\n")
-				return nil
+			if runtime.GOOS == "windows" {
+				return fmt.Errorf("could not replace running binary on Windows. Please download and install manually.")
 			}
-			return fmt.Errorf("replacing binary: %w", err)
+
+			// If rename fails (e.g. permission denied or cross-device), try sudo mv
+			fmt.Println("Permission denied or cross-device move. Trying with sudo...")
+			
+			// We use 'sudo mv' because it's the most frictionless way to handle /usr/local/bin
+			sudoCmd := exec.Command("sudo", "mv", tmpFile.Name(), exePath)
+			sudoCmd.Stdout = os.Stdout
+			sudoCmd.Stderr = os.Stderr
+			sudoCmd.Stdin = os.Stdin // For password prompt
+			
+			if err := sudoCmd.Run(); err != nil {
+				return fmt.Errorf("replacing binary with sudo: %w", err)
+			}
+		}
+
+		// Ensure the final binary is executable
+		if runtime.GOOS != "windows" {
+			if err := os.Chmod(exePath, 0755); err != nil {
+				exec.Command("sudo", "chmod", "+x", exePath).Run()
+			}
 		}
 
 		fmt.Printf("Successfully updated to %s!\n", latest.TagName)
