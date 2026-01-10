@@ -63,7 +63,7 @@ chmod +x vibeaura
 
 # Install binary
 INSTALL_DIR="/usr/local/bin"
-if [ "$OS" == "android" ]; then
+if [ "$OS" = "android" ]; then
     INSTALL_DIR="$PREFIX/bin"
 fi
 
