@@ -43,3 +43,6 @@ vibe chat
 ## 🏗️ Architecture
 For deep technical details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
+## 🤝 Contributing
+We love community "Vibes"! Check out [CONTRIBUTING.md](./CONTRIBUTING.md) to see how you can add your own agent skills and plugins.
+
