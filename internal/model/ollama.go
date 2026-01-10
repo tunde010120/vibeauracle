@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/ollama/ollama/api"
 )
@@ -21,7 +22,7 @@ func NewOllamaProvider(host string, modelName string) (*OllamaProvider, error) {
 	client, err := api.ClientFromEnvironment()
 	if err != nil {
 		// Fallback to manual client creation if env vars are not set
-		client = api.NewClient(&http.URL{Scheme: "http", Host: host}, http.DefaultClient)
+		client = api.NewClient(&url.URL{Scheme: "http", Host: host}, http.DefaultClient)
 	}
 
 	return &OllamaProvider{
