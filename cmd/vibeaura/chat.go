@@ -80,10 +80,6 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262"))
 
-	commandEchoStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#555555")).
-				Italic(true)
-
 	highlight = lipgloss.Color("#7D56F4")
 
 	tagStyle = lipgloss.NewStyle().
@@ -716,7 +712,7 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 	words := strings.Fields(val)
 
 	suggestion := m.suggestions[m.suggestionIdx]
-	
+
 	// Determine if we are completing a top-level command or a subcommand/argument
 	isTopLevel := len(words) <= 1 && !strings.HasSuffix(val, " ")
 
@@ -731,31 +727,53 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 		// Replacing the last word (likely a subcommand or tag)
 		trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
 		replacement := m.triggerChar + trimmed
-		words[len(words)-1] = replacement
-		m.textarea.SetValue(strings.Join(words, " "))
+		if len(words) > 0 {
+			words[len(words)-1] = replacement
+			m.textarea.SetValue(strings.Join(words, " "))
+		} else {
+			m.textarea.SetValue(replacement)
+		}
 	}
 	
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	m.suggestions = nil
 
-	currentVal := m.textarea.Value()
-	// If it's a command that has subcommands, just add a space and let the user continue
-	if _, ok := subCommands[currentVal]; ok {
-		m.textarea.SetValue(currentVal + " ")
-		m.textarea.SetCursor(len(m.textarea.Value()))
-		m.updateSuggestions(m.textarea.Value())
-		return m, nil
+	currentVal := strings.TrimSpace(m.textarea.Value())
+	parts := strings.Fields(currentVal)
+
+	// If it's a command that has subcommands and we only have the parent, keep composing
+	if len(parts) == 1 {
+		if _, ok := subCommands[parts[0]]; ok {
+			m.textarea.SetValue(currentVal + " ")
+			m.textarea.SetCursor(len(m.textarea.Value()))
+			m.updateSuggestions(m.textarea.Value())
+			return m, nil
+		}
 	}
 
-	// Trigger immediate execution ONLY for top-level commands that don't have subcommands
-	if isTopLevel && m.triggerChar == "/" {
-		// Check if this command needs sub-commands
-		if _, hasSubs := subCommands[currentVal]; !hasSubs {
+	// Auto-execute when suggestion completes a no-arg command or a no-arg subcommand.
+	noArgSubs := map[string]map[string]bool{
+		"/models": {"/list": true},
+		"/sys":    {"/stats": true, "/env": true, "/update": true, "/logs": true},
+		"/mcp":    {"/list": true, "/logs": true},
+		"/skill":  {"/list": true},
+	}
+
+	if len(parts) == 1 && m.triggerChar == "/" {
+		if _, hasSubs := subCommands[parts[0]]; !hasSubs {
 			return m.handleSlashCommand(currentVal)
 		}
 	}
 
-	// For sub-commands or items with arguments, we stay in the textarea to allow more input
+	if len(parts) == 2 {
+		if subs, ok := noArgSubs[parts[0]]; ok {
+			if subs[parts[1]] {
+				return m.handleSlashCommand(currentVal)
+			}
+		}
+	}
+
+	// Otherwise stay in the textarea to allow more input
 	m.textarea.SetValue(m.textarea.Value() + " ")
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	return m, nil
@@ -827,9 +845,6 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 	parts := strings.Fields(cmd)
 	m.textarea.Reset()
 
-	// Log command echoing faintly
-	m.messages = append(m.messages, commandEchoStyle.Render("λ "+m.styleMessage(cmd)))
-
 	// Normalize command path if user uses slashes without spaces (e.g. /models/list)
 	if len(parts) == 1 && strings.Count(parts[0], "/") > 1 {
 		cmdPath := parts[0]
@@ -848,6 +863,41 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 				if p != "" {
 					parts = append(parts, "/"+p)
 				}
+			}
+		}
+	}
+
+	// Guardrail: subcommands like "/list" are not top-level commands
+	if len(parts) > 0 {
+		isTopLevel := false
+		for _, c := range allCommands {
+			if c == parts[0] {
+				isTopLevel = true
+				break
+			}
+		}
+		if !isTopLevel {
+			isSub := false
+			for _, subs := range subCommands {
+				for _, s := range subs {
+					if s == parts[0] {
+						isSub = true
+						break
+					}
+				}
+				if isSub {
+					break
+				}
+			}
+			if isSub {
+				m.messages = append(m.messages,
+					systemStyle.Render(" COMMAND ")+"\n"+
+					helpStyle.Render("That is a subcommand and can’t be run by itself.")+"\n"+
+					helpStyle.Render("Example: /models /list"),
+				)
+				m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+				m.viewport.GotoBottom()
+				return m, nil
 			}
 		}
 	}

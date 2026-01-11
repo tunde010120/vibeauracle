@@ -624,6 +624,16 @@ func updateFromSource(branch string, cm *sys.ConfigManager) (bool, error) {
 		}
 	}
 
+	return buildAndInstallFromSource(sourceRoot, branch, cm)
+}
+
+func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager) (bool, error) {
+	cfg, err := cm.Load()
+	if err != nil {
+		return false, err
+	}
+	verbose := cfg.Update.Verbose
+
 	if verbose {
 		fmt.Println("Building from source...")
 	}
@@ -633,7 +643,7 @@ func updateFromSource(branch string, cm *sys.ConfigManager) (bool, error) {
 	commitSHABytes, _ := commitCmd.Output()
 	localCommit := strings.TrimSpace(string(commitSHABytes))
 
-	// Final check: if the localCommit we just pulled matches current Commit, no update needed.
+	// Final check: if the localCommit we just pulled/checked out matches current Commit, no update needed.
 	// This covers cases where 'remoteSHA' was fetched but we are already running that code.
 	if localCommit == Commit && !strings.HasPrefix(Version, "dev") {
 		return false, nil
