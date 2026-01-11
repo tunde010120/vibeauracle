@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # vibeauracle Universal Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.sh | bash
 
 set -e
 
@@ -97,7 +97,9 @@ if [ "$OS" = "android" ]; then
     fi
     
     export PATH="$PATH:$INSTALL_DIR"
-    "$INSTALL_DIR/vibeaura" version || true
+    # Use expanded home directory for true absolute path in output/check
+    FINAL_BINARY="${HOME}/bin/vibeaura"
+    "$FINAL_BINARY" version || true
 else
     INSTALL_DIR="/usr/local/bin"
     if [ -w "$INSTALL_DIR" ]; then
@@ -107,5 +109,7 @@ else
         sudo mv vibeaura "$INSTALL_DIR/vibeaura"
     fi
     echo "Successfully installed vibeauracle to $INSTALL_DIR/vibeaura"
-    "$INSTALL_DIR/vibeaura" version || true
+    # Full absolute path for version check
+    FINAL_BINARY="/usr/local/bin/vibeaura"
+    "$FINAL_BINARY" version || true
 fi

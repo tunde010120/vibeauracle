@@ -212,7 +212,7 @@ func populateActualSHA(latest *releaseInfo) {
 	}
 }
 
-func isUpdateAvailable(latest *releaseInfo) bool {
+func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 	// 1. Try Semantic Versioning comparison
 	vLocal := Version
 	if !strings.HasPrefix(vLocal, "v") && semver.IsValid("v"+vLocal) {
@@ -233,9 +233,9 @@ func isUpdateAvailable(latest *releaseInfo) bool {
 		return latest.ActualSHA != "" && latest.ActualSHA != Commit
 	}
 
-	// 3. Fallback: if we are in a dev build, we usually don't want auto-update prompts,
-	// but if the user explicitly runs 'update', we'll handle that in the command logic.
-	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
+	// 3. Fallback: if we are in a dev build, we usually don't want auto-update prompts
+	// when in silent mode (startup check).
+	if silent && (Version == "dev" || strings.HasPrefix(Version, "dev-")) {
 		return false
 	}
 
@@ -281,7 +281,7 @@ func checkUpdateSilent() {
 
 	if useBeta && !buildFromSource {
 		latest, err = getLatestRelease("beta")
-		if err == nil && isUpdateAvailable(latest) {
+		if err == nil && isUpdateAvailable(latest, true) {
 			latestSHA = latest.ActualSHA
 			latestTag = latest.TagName
 			channel = "Beta"
@@ -296,7 +296,7 @@ func checkUpdateSilent() {
 		channel = "Source (" + branch + ")"
 	} else {
 		latest, err = getLatestRelease("")
-		if err == nil && isUpdateAvailable(latest) {
+		if err == nil && isUpdateAvailable(latest, true) {
 			latestSHA = latest.ActualSHA
 			latestTag = latest.TagName
 			channel = "Stable"
@@ -750,12 +750,13 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("checking for updates: %w", err)
 		}
 
-		if !isUpdateAvailable(latest) && !strings.HasPrefix(Version, "dev") {
+		isDev := strings.HasPrefix(Version, "dev")
+		if !isUpdateAvailable(latest, false) && !isDev {
 			fmt.Println("vibeaura is already up to date!")
 			return nil
 		}
 
-		if strings.HasPrefix(Version, "dev") {
+		if isDev {
 			fmt.Printf("Dev build detected. Force-updating to latest stable binary (%s)...\n", latest.TagName)
 		}
 
