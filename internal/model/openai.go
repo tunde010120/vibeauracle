@@ -102,11 +102,22 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]string, error) {
 
 	var models []string
 	for _, m := range data.Data {
-		// Only include common chat models to avoid cluttering the UI
 		id := m.ID
-		isChatModel := strings.HasPrefix(id, "gpt") || 
-			strings.HasPrefix(id, "o1-") || 
-			id == "o3-mini"
+		lId := strings.ToLower(id)
+		
+		// If it's a custom endpoint (not standard OpenAI), include everything
+		if p.baseURL != "https://api.openai.com/v1" {
+			models = append(models, id)
+			continue
+		}
+
+		// Standard OpenAI: Only include chat/reasoning models to avoid cluttering with 
+		// embeddings, davinci-002, babbage-002, etc.
+		isChatModel := strings.HasPrefix(lId, "gpt") || 
+			strings.HasPrefix(lId, "o1-") || 
+			strings.HasPrefix(lId, "o3-") ||
+			strings.Contains(lId, "chat") ||
+			strings.Contains(lId, "instruct")
 		
 		if isChatModel {
 			models = append(models, id)
