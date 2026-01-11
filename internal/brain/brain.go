@@ -140,6 +140,11 @@ func (b *Brain) ClearState(id string) error {
 	return b.memory.ClearState(id)
 }
 
+// GetConfig returns the brain's configuration
+func (b *Brain) GetConfig() *sys.Config {
+	return b.config
+}
+
 // GetSnapshot returns a current snapshot of system resources via the monitor
 func (b *Brain) GetSnapshot() (sys.Snapshot, error) {
 	return b.monitor.GetSnapshot()
