@@ -839,7 +839,13 @@ func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
 	case "/ollama":
 		if len(parts) > 2 {
 			endpoint := parts[2]
-			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render(fmt.Sprintf("Ollama endpoint set to: %s", endpoint)))
+			cfg := m.brain.Config()
+			cfg.Model.Endpoint = endpoint
+			if err := m.brain.UpdateConfig(cfg); err != nil {
+				m.messages = append(m.messages, errorStyle.Render(" CONFIG ERROR ")+"\n"+err.Error())
+			} else {
+				m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render(fmt.Sprintf("Ollama endpoint set to: %s", endpoint)))
+			}
 		} else {
 			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render("Ollama is usually active on http://localhost:11434.\nTo use a custom host: /auth /ollama <endpoint>"))
 		}
