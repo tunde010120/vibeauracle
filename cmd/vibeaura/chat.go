@@ -17,17 +17,31 @@ import (
 	"github.com/nathfavour/vibeauracle/brain"
 )
 
+type focus int
+
+const (
+	focusChat focus = iota
+	focusPerusal
+	focusEdit
+)
+
 type model struct {
 	viewport      viewport.Model
+	perusalVp     viewport.Model
 	messages      []string
 	textarea      textarea.Model
+	editArea      textarea.Model
 	err           error
 	brain         *brain.Brain
 	width         int
 	height        int
 	initialized   bool
 	showTree      bool
-	treeView      string
+	focus         focus
+	treeEntries   []os.DirEntry
+	treeCursor    int
+	currentPath   string
+	isFileOpen    bool
 	suggestions   []string
 	suggestionIdx int
 	triggerChar   string // '/' or '#'
@@ -80,6 +94,14 @@ var (
 			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderForeground(lipgloss.Color("#444444")).
 			PaddingLeft(2)
+
+	activeBorder = lipgloss.NewStyle().
+			Border(lipgloss.ThickBorder(), true).
+			BorderForeground(lipgloss.Color("#7D56F4"))
+
+	inactiveBorder = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), true).
+			BorderForeground(lipgloss.Color("#444444"))
 )
 
 type chatState struct {
@@ -95,25 +117,37 @@ func initialModel(b *brain.Brain) *model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message or type / for commands..."
 	ta.Focus()
-
 	ta.Prompt = "┃ "
 	ta.CharLimit = 2000
-
 	ta.SetWidth(60)
 	ta.SetHeight(3)
-
-	// Remove cursor line styling
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.ShowLineNumbers = false
 
+	ea := textarea.New()
+	ea.Placeholder = "Edit file... (Esc to cancel, Ctrl+S to save)"
+	ea.ShowLineNumbers = true
+	ea.SetWidth(60)
+	ea.SetHeight(20)
+
 	vp := viewport.New(60, 15)
+	pvp := viewport.New(60, 15)
+
+	cwd, _ := os.Getwd()
 	
 	m := &model{
-		textarea: ta,
-		viewport: vp,
-		messages: []string{},
-		brain:    b,
+		textarea:    ta,
+		editArea:    ea,
+		viewport:    vp,
+		perusalVp:   pvp,
+		messages:    []string{},
+		brain:       b,
+		focus:       focusChat,
+		currentPath: cwd,
 	}
+
+	// Load initial tree
+	m.loadTree(cwd)
 
 	// Attempt to restore state
 	var state chatState
@@ -151,10 +185,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd
+		eaCmd tea.Cmd
+		pvCmd tea.Cmd
 	)
 
-	m.textarea, tiCmd = m.textarea.Update(msg)
+	// Update focus-specific components
+	switch m.focus {
+	case focusChat:
+		m.textarea, tiCmd = m.textarea.Update(msg)
+	case focusEdit:
+		m.editArea, eaCmd = m.editArea.Update(msg)
+	}
 	m.viewport, vpCmd = m.viewport.Update(msg)
+	m.perusalVp, pvCmd = m.perusalVp.Update(msg)
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -163,57 +206,48 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Width = msg.Width
 		if m.showTree {
 			m.viewport.Width = msg.Width / 2
+			m.perusalVp.Width = msg.Width / 2 - 4
 		}
 		m.textarea.SetWidth(m.viewport.Width)
+		m.editArea.SetWidth(m.perusalVp.Width)
 		m.viewport.Height = msg.Height - m.textarea.Height() - 6
+		m.perusalVp.Height = m.viewport.Height
+		m.editArea.SetHeight(m.perusalVp.Height - 2)
+
 	case tea.KeyMsg:
-		// Suggestion navigation
-		if len(m.suggestions) > 0 {
-			switch msg.String() {
-			case "tab", "down":
-				m.suggestionIdx = (m.suggestionIdx + 1) % len(m.suggestions)
-				return m, nil
-			case "shift+tab", "up":
-				m.suggestionIdx = (m.suggestionIdx - 1 + len(m.suggestions)) % len(m.suggestions)
-				return m, nil
-			case "enter":
-				// Accept suggestion
-				m.applySuggestion()
-				return m, nil
+		// Universal focus switcher
+		if msg.String() == "tab" && m.focus != focusEdit {
+			if m.focus == focusChat {
+				m.focus = focusPerusal
+				m.textarea.Blur()
+			} else {
+				m.focus = focusChat
+				m.textarea.Focus()
 			}
+			return m, nil
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "esc":
-			m.saveState()
-			return m, tea.Quit
-		case "enter":
-			v := m.textarea.Value()
-			if v == "" {
+		if msg.String() == "esc" {
+			if m.focus == focusEdit {
+				m.focus = focusPerusal
 				return m, nil
 			}
-
-			// Handle slash commands
-			if strings.HasPrefix(v, "/") {
-				return m.handleSlashCommand(v)
-			}
-
-			// Add user message via a response update
-			m.messages = append(m.messages, userStyle.Render("You: ")+v)
-			m.textarea.Reset()
-			m.updateSuggestions("") // Clear suggestions
-			m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
-			m.viewport.GotoBottom()
-			
-			m.saveState()
-
-			// Process via brain
-			return m, m.processRequest(v)
-		default:
-			// After normal keypress, update suggestions
-			m.updateSuggestions(m.textarea.Value())
-			m.updateDynamicPreview()
+			m.focus = focusChat
+			m.textarea.Focus()
+			m.suggestions = nil
+			return m, nil
 		}
+
+		// Handle active focus
+		switch m.focus {
+		case focusChat:
+			return m.handleChatKey(msg)
+		case focusPerusal:
+			return m.handlePerusalKey(msg)
+		case focusEdit:
+			return m.handleEditKey(msg)
+		}
+	
 	case brain.Response:
 		if msg.Error != nil {
 			m.messages = append(m.messages, errorStyle.Render("Error: ")+msg.Error.Error())
@@ -225,7 +259,147 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveState()
 	}
 
-	return m, tea.Batch(tiCmd, vpCmd)
+	return m, tea.Batch(tiCmd, vpCmd, eaCmd, pvCmd)
+}
+
+func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Suggestion navigation
+	if len(m.suggestions) > 0 {
+		switch msg.String() {
+		case "down":
+			m.suggestionIdx = (m.suggestionIdx + 1) % len(m.suggestions)
+			return m, nil
+		case "up":
+			m.suggestionIdx = (m.suggestionIdx - 1 + len(m.suggestions)) % len(m.suggestions)
+			return m, nil
+		case "enter":
+			m.applySuggestion()
+			return m, nil
+		}
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		m.saveState()
+		return m, tea.Quit
+	case "enter":
+		v := m.textarea.Value()
+		if v == "" {
+			return m, nil
+		}
+		if strings.HasPrefix(v, "/") {
+			return m.handleSlashCommand(v)
+		}
+		m.messages = append(m.messages, userStyle.Render("You: ")+v)
+		m.textarea.Reset()
+		m.suggestions = nil
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.GotoBottom()
+		m.saveState()
+		return m, m.processRequest(v)
+	default:
+		m.updateSuggestions(m.textarea.Value())
+	}
+	return m, nil
+}
+
+func (m *model) handlePerusalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.treeCursor > 0 {
+			m.treeCursor--
+			m.updatePerusalContent()
+		}
+	case "down", "j":
+		if m.treeCursor < len(m.treeEntries)-1 {
+			m.treeCursor++
+			m.updatePerusalContent()
+		}
+	case "enter":
+		if len(m.treeEntries) == 0 {
+			return m, nil
+		}
+		entry := m.treeEntries[m.treeCursor]
+		path := filepath.Join(m.currentPath, entry.Name())
+		if entry.IsDir() {
+			m.currentPath = path
+			m.treeCursor = 0
+			m.loadTree(path)
+		} else {
+			m.openFile(path)
+		}
+	case "backspace":
+		parent := filepath.Dir(m.currentPath)
+		m.currentPath = parent
+		m.treeCursor = 0
+		m.loadTree(parent)
+	case ":":
+		// Quick command mode if needed, but for now just :i
+	case "i":
+		if m.isFileOpen {
+			m.focus = focusEdit
+			m.editArea.Focus()
+		}
+	}
+	return m, nil
+}
+
+func (m *model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+s" {
+		content := m.editArea.Value()
+		os.WriteFile(m.currentPath, []byte(content), 0644)
+		m.focus = focusPerusal
+		m.openFile(m.currentPath) // Refresh view
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *model) loadTree(path string) {
+	entries, _ := os.ReadDir(path)
+	m.treeEntries = nil
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".") || e.Name() == ".env" {
+			m.treeEntries = append(m.treeEntries, e)
+		}
+	}
+	m.isFileOpen = false
+	m.updatePerusalContent()
+}
+
+func (m *model) openFile(path string) {
+	content, err := os.ReadFile(path)
+	if err == nil {
+		m.isFileOpen = true
+		m.currentPath = path
+		m.editArea.SetValue(string(content))
+		m.perusalVp.SetContent(string(content))
+	}
+}
+
+func (m *model) updatePerusalContent() {
+	if m.isFileOpen {
+		return
+	}
+	var sb strings.Builder
+	sb.WriteString(systemStyle.Render(" EXPLORER: "+m.currentPath) + "\n\n")
+	for i, entry := range m.treeEntries {
+		cursor := "  "
+		if i == m.treeCursor {
+			cursor = "> "
+		}
+		icon := "📄 "
+		if entry.IsDir() {
+			icon = "📁 "
+		}
+		line := cursor + icon + entry.Name()
+		if i == m.treeCursor {
+			sb.WriteString(suggestionStyle.Render(line) + "\n")
+		} else {
+			sb.WriteString(line + "\n")
+		}
+	}
+	m.perusalVp.SetContent(sb.String())
 }
 
 func (m *model) updateSuggestions(val string) {
@@ -322,70 +496,6 @@ func (m *model) applySuggestion() {
 	}
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	m.suggestions = nil
-	m.updateDynamicPreview()
-}
-
-func (m *model) updateDynamicPreview() {
-	if !m.showTree {
-		return
-	}
-
-	val := m.textarea.Value()
-	tags := m.extractTags(val)
-	
-	if len(tags) > 0 {
-		// Show the last tag's content
-		lastTag := tags[len(tags)-1]
-		content, err := os.ReadFile(lastTag)
-		if err == nil {
-			m.treeView = string(content)
-			return
-		}
-		
-		// If it's a directory, show tree
-		info, err := os.Stat(lastTag)
-		if err == nil && info.IsDir() {
-			m.treeView = m.renderTree(lastTag)
-			return
-		}
-	}
-
-	// Default to workspace tree
-	m.treeView = m.renderTree(".")
-}
-
-func (m *model) extractTags(val string) []string {
-	var tags []string
-	words := strings.Fields(val)
-	for _, w := range words {
-		if strings.HasPrefix(w, "#") {
-			path := strings.TrimPrefix(w, "#")
-			if _, err := os.Stat(path); err == nil {
-				tags = append(tags, path)
-			}
-		}
-	}
-	return tags
-}
-
-func (m *model) renderTree(root string) string {
-	var sb strings.Builder
-	sb.WriteString(systemStyle.Render(" EXPLORER: " + root) + "\n\n")
-	
-	entries, _ := os.ReadDir(root)
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") && name != ".env" {
-			continue
-		}
-		
-		icon := "📄 "
-		if entry.IsDir() {
-			icon = "📁 "
-		}
-		sb.WriteString(icon + name + "\n")
-	}
-	return sb.String()
 }
 
 func (m *model) processRequest(content string) tea.Cmd {
@@ -418,14 +528,8 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, systemStyle.Render(" VERSION ") + "\n" + helpStyle.Render(fmt.Sprintf("App: %s\nCommit: %s\nCompiler: %s", Version, Commit, runtime.Version())))
 	case "/show-tree":
 		m.showTree = !m.showTree
-		if m.showTree {
-			m.viewport.Width = m.width / 2
-			m.treeView = m.renderTree(".")
-		} else {
-			m.viewport.Width = m.width
-		}
-		m.textarea.SetWidth(m.viewport.Width)
-		m.messages = append(m.messages, systemStyle.Render(" Sideview Toggled "))
+		// trigger resize
+		return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
 	case "/clear":
 		m.messages = []string{}
 		m.viewport.SetContent(systemStyle.Render(" Session Cleared "))
@@ -443,16 +547,33 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 
 func (m *model) View() string {
 	header := titleStyle.Render(" vibeauracle ") + " " + helpStyle.Render("v"+Version)
-	border := strings.Repeat("─", m.width)
-	if m.width > 20 {
-		border = strings.Repeat("─", m.width-1)
+	borderWidth := m.width
+	if borderWidth > 20 {
+		borderWidth--
+	}
+	border := strings.Repeat("─", borderWidth)
+
+	chatView := m.viewport.View()
+	if m.focus == focusChat {
+		chatView = activeBorder.Width(m.viewport.Width).Render(chatView)
+	} else {
+		chatView = inactiveBorder.Width(m.viewport.Width).Render(chatView)
 	}
 
-	mainContent := m.viewport.View()
+	mainContent := chatView
 	if m.showTree {
+		var perusalContent string
+		if m.focus == focusEdit {
+			perusalContent = activeBorder.Width(m.perusalVp.Width).Render(m.editArea.View())
+		} else if m.focus == focusPerusal {
+			perusalContent = activeBorder.Width(m.perusalVp.Width).Render(m.perusalVp.View())
+		} else {
+			perusalContent = inactiveBorder.Width(m.perusalVp.Width).Render(m.perusalVp.View())
+		}
+
 		mainContent = lipgloss.JoinHorizontal(lipgloss.Top,
-			m.viewport.View(),
-			treeStyle.Render(m.treeView),
+			chatView,
+			perusalContent,
 		)
 	}
 
