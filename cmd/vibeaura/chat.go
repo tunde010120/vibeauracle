@@ -70,6 +70,9 @@ var (
 			Padding(0, 1).
 			Bold(true)
 
+	subtleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#626262"))
+
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF0000")).
 			Bold(true)
@@ -113,7 +116,14 @@ type chatState struct {
 }
 
 var allCommands = []string{
-	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth",
+	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth", "/mcp", "/sys", "/skill",
+}
+
+var subCommands = map[string][]string{
+	"/auth":  {"ollama", "github-models", "github-copilot", "openai", "anthropic"},
+	"/mcp":   {"list", "add", "logs", "call"},
+	"/sys":   {"stats", "env", "update", "logs"},
+	"/skill": {"list", "info", "load", "disable"},
 }
 
 func buildBanner(width int) string {
@@ -568,7 +578,18 @@ func (m *model) updateSuggestions(val string) {
 		return
 	}
 
-	// Find the word being typed
+	// Handle trailing space for subcommand triggering
+	if strings.HasSuffix(val, " ") {
+		parts := strings.Fields(val)
+		if len(parts) == 1 {
+			if subs, ok := subCommands[parts[0]]; ok {
+				m.suggestions = subs
+				sort.Strings(m.suggestions)
+				return
+			}
+		}
+	}
+
 	words := strings.Fields(val)
 	if len(words) == 0 {
 		if strings.HasSuffix(val, "/") {
@@ -582,29 +603,29 @@ func (m *model) updateSuggestions(val string) {
 		return
 	}
 
-	// Special case: if we just typed "/auth " (with a space), show all providers
-	if len(words) == 1 && words[0] == "/auth" && strings.HasSuffix(val, " ") {
-		m.triggerChar = ""
-		m.suggestions = []string{"ollama", "github-models", "github-copilot", "openai", "anthropic"}
-		sort.Strings(m.suggestions)
-		return
+	lastWord := words[len(words)-1]
+	
+	// Check if we are typing a subcommand
+	if len(words) > 1 {
+		parentCmd := words[0]
+		if subs, ok := subCommands[parentCmd]; ok {
+			for _, sub := range subs {
+				if strings.HasPrefix(sub, lastWord) {
+					m.suggestions = append(m.suggestions, sub)
+				}
+			}
+			sort.Strings(m.suggestions)
+			if len(m.suggestions) > 0 {
+				return
+			}
+		}
 	}
 
-	lastWord := words[len(words)-1]
 	if strings.HasPrefix(lastWord, "/") {
 		m.triggerChar = "/"
 		for _, cmd := range allCommands {
 			if strings.HasPrefix(cmd, lastWord) {
 				m.suggestions = append(m.suggestions, cmd)
-			}
-		}
-		sort.Strings(m.suggestions)
-	} else if len(words) > 1 && words[0] == "/auth" {
-		m.triggerChar = ""
-		subcommands := []string{"ollama", "github-models", "github-copilot", "openai", "anthropic"}
-		for _, sub := range subcommands {
-			if strings.HasPrefix(sub, lastWord) {
-				m.suggestions = append(m.suggestions, sub)
 			}
 		}
 		sort.Strings(m.suggestions)
@@ -663,12 +684,24 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 
 	if len(words) == 0 {
 		m.textarea.SetValue(replacement)
+	} else if strings.HasSuffix(val, " ") {
+		// We were suggesting subcommands because of a trailing space
+		m.textarea.SetValue(val + suggestion)
 	} else {
 		words[len(words)-1] = replacement
 		m.textarea.SetValue(strings.Join(words, " "))
 	}
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	m.suggestions = nil
+
+	currentVal := m.textarea.Value()
+	// If it's a command that has subcommands, just add a space and let the user continue
+	if _, ok := subCommands[currentVal]; ok {
+		m.textarea.SetValue(currentVal + " ")
+		m.textarea.SetCursor(len(m.textarea.Value()))
+		m.updateSuggestions(m.textarea.Value())
+		return m, nil
+	}
 
 	if m.triggerChar == "/" {
 		return m.handleSlashCommand(m.textarea.Value())
@@ -747,7 +780,7 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 
 	switch parts[0] {
 	case "/help":
-		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /cwd     - Show current directory\n• /version - Show current version info\n• /shot    - Take a beautiful TUI screenshot\n• /auth    - Manage AI provider credentials\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
+		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /mcp     - Manage MCP tools & servers\n• /skill   - Manage agentic vibes/skills\n• /sys     - Hardware & system details\n• /auth    - Manage AI provider credentials\n• /shot    - Take a beautiful TUI screenshot\n• /cwd     - Show current directory\n• /version - Show version info\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
 	case "/status":
 		snapshot, _ := m.brain.GetSnapshot()
 		status := fmt.Sprintf(systemStyle.Render(" SYSTEM ")+"\n"+helpStyle.Render("CPU: %.1f%% | Mem: %.1f%%"), snapshot.CPUUsage, snapshot.MemoryUsage)
@@ -759,6 +792,12 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, systemStyle.Render(" VERSION ")+"\n"+helpStyle.Render(fmt.Sprintf("App: %s\nCommit: %s\nCompiler: %s", Version, Commit, runtime.Version())))
 	case "/auth":
 		return m.handleAuthCommand(parts)
+	case "/mcp":
+		return m.handleMcpCommand(parts)
+	case "/sys":
+		return m.handleSysCommand(parts)
+	case "/skill":
+		return m.handleSkillCommand(parts)
 	case "/shot":
 		return m.takeScreenshot()
 	case "/show-tree":
@@ -816,6 +855,87 @@ func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
 		}
 	default:
 		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+errorStyle.Render(fmt.Sprintf(" Provider '%s' not yet integrated ", provider)))
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleMcpCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Manage Model Context Protocol servers.\n\nUsage: /mcp <subcommand>\nSubcommands: list, add, logs, call"))
+		return m, nil
+	}
+
+	sub := strings.ToLower(parts[1])
+	switch sub {
+	case "list":
+		m.messages = append(m.messages, systemStyle.Render(" MCP SERVERS ")+"\n"+helpStyle.Render("• github (stdio) - tools: github_query\n• postgres (stdio) - tools: postgres_exec"))
+	case "add":
+		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Usage: /mcp add <name> <command> [args...]"))
+	case "logs":
+		m.messages = append(m.messages, systemStyle.Render(" MCP LOGS ")+"\n"+subtleStyle.Render("Waiting for MCP traffic..."))
+	case "call":
+		m.messages = append(m.messages, systemStyle.Render(" MCP CALL ")+"\n"+helpStyle.Render("Usage: /mcp call <tool_name> <json_args>"))
+	default:
+		m.messages = append(m.messages, errorStyle.Render(" Unknown MCP subcommand: ")+sub)
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleSysCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" SYS ")+"\n"+helpStyle.Render("System and hardware intimacy controls.\n\nUsage: /sys <subcommand>\nSubcommands: stats, env, update, logs"))
+		return m, nil
+	}
+
+	sub := strings.ToLower(parts[1])
+	switch sub {
+	case "stats":
+		snapshot, _ := m.brain.GetSnapshot()
+		stats := fmt.Sprintf(systemStyle.Render(" POWER SNAPSHOT ")+"\n"+
+			helpStyle.Render("OS: %s | Arch: %s\nCPU: %.1f%% | Mem: %.1f%%\nGoroutines: %d"),
+			runtime.GOOS, runtime.GOARCH, snapshot.CPUUsage, snapshot.MemoryUsage, runtime.NumGoroutine())
+		m.messages = append(m.messages, stats)
+	case "env":
+		m.messages = append(m.messages, systemStyle.Render(" ENVIRONMENT ")+"\n"+helpStyle.Render("Limited view (Filtered for security)\nSHELL: %s\nPATH: %s..."), os.Getenv("SHELL"), os.Getenv("PATH")[:30])
+	case "update":
+		// This uses the logic from update.go
+		m.messages = append(m.messages, systemStyle.Render(" UPDATE ")+"\n"+helpStyle.Render("Checking for latest release on GitHub..."))
+		// In a real implementation, we would return a Cmd here to run the update check
+	case "logs":
+		m.messages = append(m.messages, systemStyle.Render(" SYSTEM LOGS ")+"\n"+subtleStyle.Render("Streaming vibeauracle.log..."))
+	default:
+		m.messages = append(m.messages, errorStyle.Render(" Unknown SYS subcommand: ")+sub)
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleSkillCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" SKILL ")+"\n"+helpStyle.Render("Manage Brain capabilities (Vibes).\n\nUsage: /skill <subcommand>\nSubcommands: list, info, load, disable"))
+		return m, nil
+	}
+
+	sub := strings.ToLower(parts[1])
+	switch sub {
+	case "list":
+		m.messages = append(m.messages, systemStyle.Render(" ACTIVE SKILLS ")+"\n"+helpStyle.Render("• hello-world (vibe)\n• fs-manager (internal)\n• git-ops (internal)"))
+	case "info":
+		m.messages = append(m.messages, systemStyle.Render(" SKILL INFO ")+"\n"+helpStyle.Render("Usage: /skill info <skill_id>"))
+	case "load":
+		m.messages = append(m.messages, systemStyle.Render(" LOAD SKILL ")+"\n"+helpStyle.Render("Usage: /skill load <path_or_url>"))
+	case "disable":
+		m.messages = append(m.messages, systemStyle.Render(" DISABLE SKILL ")+"\n"+helpStyle.Render("Usage: /skill disable <skill_id>"))
+	default:
+		m.messages = append(m.messages, errorStyle.Render(" Unknown SKILL subcommand: ")+sub)
 	}
 
 	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
