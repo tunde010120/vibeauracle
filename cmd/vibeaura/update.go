@@ -494,6 +494,11 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 	buildOut := filepath.Join(sourceRoot, "vibeaura_new")
 	buildCmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", buildOut, "./cmd/vibeaura")
 	buildCmd.Dir = sourceRoot
+	
+	// Force Go to use the locally installed toolchain and avoid automatic downloads
+	// which often fail on mobile/Termux.
+	buildCmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+
 	if verbose {
 		buildCmd.Stdout = os.Stdout
 		buildCmd.Stderr = os.Stderr
@@ -501,7 +506,8 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 	
 	if err := buildCmd.Run(); err != nil {
 		if verbose {
-			fmt.Println("\n❌ Build failed! The beta version might be unstable.")
+			fmt.Println("\n❌ Build failed! This usually happens if your installed Go version is older than the one required by the project.")
+			fmt.Println("👉 Try running: pkg upgrade golang (on Termux) or update Go on your desktop.")
 		}
 		// Quietly mark this commit as failed if possible
 		commitCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "HEAD")
