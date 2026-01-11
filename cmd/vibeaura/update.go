@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -36,8 +38,38 @@ type metadata struct {
 	Date    string `json:"date"`
 }
 
+func getResilientClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Try IPv4 first if dual-stack DNS is flaky
+			conn, err := dialer.DialContext(ctx, "tcp4", addr)
+			if err != nil {
+				// Fallback to default behavior (IPv6/IPv4 as system prefers)
+				return dialer.DialContext(ctx, "tcp", addr)
+			}
+			return conn, nil
+		},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   15 * time.Second,
+	}
+}
+
 func getLatestRelease() (*releaseInfo, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := getResilientClient()
 	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
 	if err != nil {
 		return nil, err
@@ -111,7 +143,7 @@ func isUpdateAvailable(latest *releaseInfo) bool {
 }
 
 func getBranchCommitSHA(branch string) (string, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := getResilientClient()
 	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, branch))
 	if err != nil {
 		return "", err
