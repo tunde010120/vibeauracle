@@ -62,7 +62,9 @@ the IDE, and the AI assistant into a single system-aware experience.`,
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		b := brain.New()
-		p := tea.NewProgram(initialModel(b))
+		
+		// Ensure we are in an interactive terminal
+		p := tea.NewProgram(initialModel(b), tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Alas, there's been an error: %v", err)
 			os.Exit(1)
