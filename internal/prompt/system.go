@@ -141,8 +141,9 @@ func (s *System) compose(intent Intent, layers []string, recall string, snapshot
 	b.WriteString(fmt.Sprintf("CWD: %s\nCPU: %.2f%%\nMEM: %.2f%%\n", snapshot.WorkingDir, snapshot.CPUUsage, snapshot.MemoryUsage))
 
 	if strings.TrimSpace(toolDefs) != "" {
-		b.WriteString("\nAVAILABLE TOOLS:\n")
+		b.WriteString("\nAVAILABLE TOOLS (ACTION REQUIRED):\n")
 		b.WriteString(toolDefs)
+		b.WriteString("\nYou are an ACTION-FIRST agent. If the user request implies `creating`, `reading`, or `modifying` files, you MUST use the provided tools immediately. Do not ask for permission unless the tool explicitly requires it. Do not just list files if asked to create them. EXECUTE. WE are in " + snapshot.WorkingDir + ". Assume this is the project root unless specified otherwise.")
 	}
 
 	b.WriteString("\nUSER PROMPT:\n")
@@ -174,7 +175,7 @@ func (s *System) maybeRecommend(ctx context.Context, intent Intent, userText str
 		prob = 0.05
 	}
 	// Deterministic-ish sampling: hashless, time-bucket based.
-	if (time.Now().UnixNano()%1000) > int64(prob*1000) {
+	if (time.Now().UnixNano() % 1000) > int64(prob*1000) {
 		return nil, nil
 	}
 

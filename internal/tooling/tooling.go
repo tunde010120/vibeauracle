@@ -186,13 +186,31 @@ func DefaultRegistry(f sys.FS, m *sys.Monitor, guard *SecurityGuard) *Registry {
 
 // GetPromptDefinitions returns a human-readable or machine-parsable definition
 // of all tools to be injected into a model's prompt.
+// GetPromptDefinitions returns a detailed, schema-rich definition of all tools
+// to be injected into a model's prompt, ensuring the agent knows EXACTLY how to use them.
 func (r *Registry) GetPromptDefinitions() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var defs string
+
+	var sb string
 	for _, t := range r.tools {
 		m := t.Metadata()
-		defs += fmt.Sprintf("- %s: %s\n", m.Name, m.Description)
+
+		// Metadata Header
+		sb += fmt.Sprintf("## Tool: %s (Category: %s, Complexity: %d/10)\n", m.Name, m.Category, m.Complexity)
+		sb += fmt.Sprintf("Description: %s\n", m.Description)
+
+		// Parameter Schema
+		if len(m.Parameters) > 0 {
+			sb += fmt.Sprintf("Parameters (JSON Schema): %s\n", string(m.Parameters))
+		}
+
+		// Permission Warning
+		if len(m.Permissions) > 0 {
+			sb += fmt.Sprintf("Required Permissions: %v\n", m.Permissions)
+		}
+
+		sb += "---\n"
 	}
-	return defs
+	return sb
 }

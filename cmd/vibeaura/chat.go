@@ -1477,23 +1477,5 @@ func (m *model) pullOllamaModel(name string) tea.Cmd {
 	}
 }
 
-// main function (added based on user instruction)
-func main() {
-	// Inject Status Reporting into Tooling
-	tooling.StatusReporter = func(icon, step, msg string) {
-		select {
-		case StatusStream <- StatusEvent{Icon: icon, Step: step, Message: msg}:
-		default:
-			// Drop if buffer full
-		}
-	}
-
-	// Assuming 'b' and 'initialModel' are defined elsewhere or need to be added.
-	// For now, this part is commented out as it relies on external context not provided.
-	// p := tea.NewProgram(initialModel(b), tea.WithAltScreen())
-	// if _, err := p.Run(); err != nil {
-	// 	fmt.Printf("Alas, there's been an error: %v", err)
-	// 	os.Exit(1)
-	// }
-}
+// End of file
 ```

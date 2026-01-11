@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nathfavour/vibeauracle/brain"
+	"github.com/nathfavour/vibeauracle/tooling"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +71,16 @@ the IDE, and the AI assistant into a single system-aware experience.`,
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		b := brain.New()
-		
+
+		// Inject Status Reporting into Tooling
+		tooling.StatusReporter = func(icon, step, msg string) {
+			select {
+			case StatusStream <- StatusEvent{Icon: icon, Step: step, Message: msg}:
+			default:
+				// Drop if buffer full
+			}
+		}
+
 		// Ensure we are in an interactive terminal
 		p := tea.NewProgram(initialModel(b), tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
@@ -219,4 +229,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-
