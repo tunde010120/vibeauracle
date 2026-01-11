@@ -61,10 +61,6 @@ func New() *Brain {
 		sessions: make(map[string]*tooling.Session),
 	}
 
-	// Prompt system is modular and configurable.
-	b.prompts = prompt.New(cfg, b.memory, &prompt.NoopRecommender{})
-
-	// Initialize model provider based on config
 	b.initProvider()
 
 	// Proactive Autofix: If the configured model is missing or it's the first run,
@@ -100,6 +96,11 @@ func (b *Brain) initProvider() {
 		fmt.Printf("Error initializing provider %s: %v\n", b.config.Model.Provider, err)
 	}
 	b.model = model.New(p)
+
+	// Update the prompt system's recommender to use the newly initialized model.
+	if b.prompts != nil {
+		b.prompts.SetRecommender(prompt.NewModelRecommender(b.model))
+	}
 }
 
 // ModelDiscovery represents a discovered model with its provider

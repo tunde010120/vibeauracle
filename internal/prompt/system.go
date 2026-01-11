@@ -23,6 +23,11 @@ func New(cfg *sys.Config, memory Memory, recommender Recommender) *System {
 	return &System{cfg: cfg, memory: memory, recommender: recommender}
 }
 
+// SetRecommender updates the active recommender.
+func (s *System) SetRecommender(r Recommender) {
+	s.recommender = r
+}
+
 // Build produces the prompt envelope for a user input.
 func (s *System) Build(ctx context.Context, userText string, snapshot sys.Snapshot, toolDefs string) (Envelope, []Recommendation, error) {
 	intent := ClassifyIntent(userText)

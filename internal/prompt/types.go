@@ -60,6 +60,11 @@ type Recommender interface {
 	Recommend(ctx context.Context, in RecommendInput) ([]Recommendation, error)
 }
 
+// Model allows the prompt system to query an LLM for background tasks (like recommendations).
+type Model interface {
+	Generate(ctx context.Context, prompt string) (string, error)
+}
+
 // RecommendInput is intentionally small; we can grow it as we add richer signals.
 type RecommendInput struct {
 	Intent     Intent
