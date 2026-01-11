@@ -17,8 +17,10 @@ type Config struct {
 	} `mapstructure:"model"`
 
 	Update struct {
-		BuildFromSource bool `mapstructure:"build_from_source"`
-		Beta            bool `mapstructure:"beta"`
+		BuildFromSource bool     `mapstructure:"build_from_source"`
+		Beta            bool     `mapstructure:"beta"`
+		AutoUpdate      bool     `mapstructure:"auto_update"`
+		FailedCommits   []string `mapstructure:"failed_commits"`
 	} `mapstructure:"update"`
 
 	UI struct {
@@ -55,6 +57,8 @@ func NewConfigManager() (*ConfigManager, error) {
 	v.SetDefault("ui.theme", "dark")
 	v.SetDefault("update.build_from_source", false)
 	v.SetDefault("update.beta", false)
+	v.SetDefault("update.auto_update", true)
+	v.SetDefault("update.failed_commits", []string{})
 	
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
@@ -95,6 +99,8 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 	cm.v.Set("model.name", cfg.Model.Name)
 	cm.v.Set("update.build_from_source", cfg.Update.BuildFromSource)
 	cm.v.Set("update.beta", cfg.Update.Beta)
+	cm.v.Set("update.auto_update", cfg.Update.AutoUpdate)
+	cm.v.Set("update.failed_commits", cfg.Update.FailedCommits)
 	cm.v.Set("ui.theme", cfg.UI.Theme)
 	
 	return cm.v.WriteConfig()

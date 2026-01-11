@@ -127,7 +127,8 @@ func getBranchCommitSHA(branch string) (string, error) {
 	return commit.SHA, nil
 }
 
-// checkUpdateSilent checks for updates and prints a message if one is available
+// checkUpdateSilent checks for updates and prints a message if one is available.
+// If auto-update is enabled, it attempts to update quietly.
 func checkUpdateSilent() {
 	cm, err := sys.NewConfigManager()
 	if err != nil {
@@ -140,6 +141,7 @@ func checkUpdateSilent() {
 
 	useBeta := cfg.Update.Beta
 	buildFromSource := cfg.Update.BuildFromSource || useBeta
+	autoUpdate := cfg.Update.AutoUpdate
 
 	var latestSHA string
 	var latestTag string
@@ -167,6 +169,46 @@ func checkUpdateSilent() {
 	}
 
 	if latestSHA != "" && latestSHA != Commit {
+		// Check if this commit has previously failed to build
+		for _, failed := range cfg.Update.FailedCommits {
+			if failed == latestSHA {
+				return // Don't nag or auto-update for a known failed commit
+			}
+		}
+
+		if autoUpdate {
+			// Perform quiet auto-update
+			if buildFromSource {
+				branch := "release"
+				if useBeta {
+					branch = "master"
+				}
+				// We run this in a way that doesn't block the main tool too much, 
+				// but since it's "integrated", we'll just run it.
+				// Note: installBinary might request sudo, which isn't exactly "quiet".
+				// But for many users (like in /usr/local/bin), they will see the sudo prompt.
+				err := updateFromSource(branch, cm)
+				if err != nil {
+					// Mark as failed so we don't try again
+					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
+					cm.Save(cfg)
+				}
+			} else {
+				// Stable binary update
+				latest, _ := getLatestRelease() // Re-fetch to get assets
+				if latest != nil {
+					err := performBinaryUpdate(latest)
+					if err != nil {
+						// Binary updates usually don't "fail" in the same way builds do,
+						// but we'll mark it anyway if it does.
+						cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
+						cm.Save(cfg)
+					}
+				}
+			}
+			return // After auto-update, no need to print notification
+		}
+
 		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)      // Bright Green
 		styleChannel := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Italic(true) // Bright Blue
 		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)      // Bright Yellow
@@ -198,6 +240,47 @@ func checkUpdateSilent() {
 		)
 		fmt.Println()
 	}
+}
+
+func performBinaryUpdate(latest *releaseInfo) error {
+	// Determine target asset name
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	targetAsset := fmt.Sprintf("vibeaura-%s-%s", goos, goarch)
+	if goos == "windows" {
+		targetAsset += ".exe"
+	}
+
+	var downloadURL string
+	for _, asset := range latest.Assets {
+		if asset.Name == targetAsset {
+			downloadURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no binary for %s/%s", goos, goarch)
+	}
+
+	resp, err := http.Get(downloadURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	tmpFile, err := os.CreateTemp("", "vibeaura-update-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return err
+	}
+	tmpFile.Close()
+
+	return installBinary(tmpFile.Name())
 }
 
 func installBinary(srcPath string) error {
