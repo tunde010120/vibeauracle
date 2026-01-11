@@ -620,14 +620,27 @@ func (m *model) updatePerusalContent() {
 }
 
 func shortenModelName(name string) string {
-	parts := strings.Split(name, ":")
-	if len(parts) > 1 {
-		name = parts[0]
+	// 1. Remove hash/tag if present
+	if idx := strings.LastIndex(name, ":"); idx != -1 {
+		tag := name[idx+1:]
+		if tag == "latest" || len(tag) > 10 { // likely a hash
+			name = name[:idx]
+		}
 	}
-	parts = strings.Split(name, "/")
-	if len(parts) > 1 {
-		name = parts[len(parts)-1]
+
+	// 2. Take the leaf of the path
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
 	}
+
+	// 3. Common substitutions & capitalization
+	name = strings.ReplaceAll(name, "gpt-4o", "GPT-4o")
+	name = strings.ReplaceAll(name, "gpt-3.5-turbo", "GPT-3.5")
+	name = strings.TrimSuffix(name, "-instruct")
+	name = strings.TrimSuffix(name, "-chat")
+	name = strings.TrimSuffix(name, "-it")
+
+	// 4. Final cap if too long
 	if len(name) > 22 {
 		name = name[:19] + "..."
 	}
@@ -644,7 +657,6 @@ func (m *model) updateSuggestions(val string) {
 		return
 	}
 
-	trimmed := strings.TrimSpace(val)
 	if strings.Contains(val, "/models /use") {
 		m.isFilteringModels = true
 		if len(m.allModelDiscoveries) == 0 {
@@ -1290,6 +1302,10 @@ func (m *model) renderSuggestions() string {
 			Render("🔍 Filter: " + m.suggestionFilter + "█")
 		rows = append(rows, filterHeader)
 		rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#444444")).Render(strings.Repeat("─", width)))
+		
+		if len(m.allModelDiscoveries) == 0 {
+			rows = append(rows, subtleStyle.Width(width).Render("  Discovering models..."))
+		}
 	}
 
 	for i, s := range items {
