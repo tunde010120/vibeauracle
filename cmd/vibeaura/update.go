@@ -78,15 +78,20 @@ func fetchWithFallback(url string) ([]byte, error) {
 	resp, err := client.Get(url)
 	if err == nil {
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return io.ReadAll(resp.Body)
+		}
+		// If it's a 404 or other error, we don't want to fallback to curl
+		// if the Go client successfully contacted the server.
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("server returned status: %d", resp.StatusCode)
 		}
-		return io.ReadAll(resp.Body)
 	}
 
-	// Network error detected, try curl as a fallback (highly reliable on Termux/Mobile)
+	// Network error detected (e.g. DNS failure), try curl as a fallback (highly reliable on Termux/Mobile)
 	if _, curlErr := exec.LookPath("curl"); curlErr == nil {
-		cmd := exec.Command("curl", "-sL", url)
+		// Use -f to fail on server errors, -s for silent, -L to follow redirects
+		cmd := exec.Command("curl", "-fsL", url)
 		data, cmdErr := cmd.Output()
 		if cmdErr == nil {
 			return data, nil
@@ -105,7 +110,7 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 		data, err = fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
 		if err == nil {
 			var latest releaseInfo
-			if err := json.Unmarshal(data, &latest); err == nil {
+			if err := json.Unmarshal(data, &latest); err == nil && latest.TagName != "" {
 				// Success, return it
 				populateActualSHA(&latest)
 				return &latest, nil
@@ -144,6 +149,13 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 	if latest == nil {
 		for i := range releases {
 			tag := releases[i].TagName
+			
+			// Priority: if channel is empty, prefer "latest" or valid semver stable releases
+			if channel == "" && tag == "latest" {
+				latest = &releases[i]
+				break
+			}
+
 			vTag := tag
 			if !strings.HasPrefix(vTag, "v") {
 				vTag = "v" + vTag
@@ -157,6 +169,9 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 				}
 
 				latestVTag := latest.TagName
+				if latestVTag == "latest" {
+					continue // Already found "latest", respect it
+				}
 				if !strings.HasPrefix(latestVTag, "v") {
 					latestVTag = "v" + latestVTag
 				}
@@ -168,9 +183,13 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 		}
 	}
 
-	// Final fallback: just the first release in the list if still nil
-	if latest == nil {
+	// Final fallback: just the first release in the list if still nil (and it has a tag)
+	if latest == nil && len(releases) > 0 {
 		latest = &releases[0]
+	}
+
+	if latest == nil || latest.TagName == "" {
+		return nil, fmt.Errorf("could not resolve a valid release")
 	}
 
 	populateActualSHA(latest)
@@ -213,6 +232,10 @@ func populateActualSHA(latest *releaseInfo) {
 }
 
 func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
+	if latest == nil || latest.TagName == "" {
+		return false
+	}
+
 	// 1. Try Semantic Versioning comparison
 	vLocal := Version
 	if !strings.HasPrefix(vLocal, "v") && semver.IsValid("v"+vLocal) {
