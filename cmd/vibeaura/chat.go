@@ -42,6 +42,7 @@ type model struct {
 	treeCursor    int
 	currentPath   string
 	isFileOpen    bool
+	banner        string
 	suggestions   []string
 	suggestionIdx int
 	triggerChar   string // '/' or '#'
@@ -134,7 +135,18 @@ func initialModel(b *brain.Brain) *model {
 	pvp := viewport.New(60, 15)
 
 	cwd, _ := os.Getwd()
-	
+
+	banner := lipgloss.JoinVertical(lipgloss.Center,
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00D7")).Bold(true).Render("       _ _                                  _      "),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#D700FF")).Bold(true).Render(" __   _(_) |__   ___  __ _ _   _ _ __ __ _  ___| | ___ "),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#AF00FF")).Bold(true).Render(" \\ \\ / / | '_ \\ / _ \\/ _` | | | | '__/ _` |/ __| |/ _ \\"),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#8700FF")).Bold(true).Render("  \\ V /| | |_) |  __/ (_| | |_| | | | (_| | (__| |  __/"),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#5F00FF")).Bold(true).Render("   \\_/ |_|_.__/ \\___|\\__,_|\\__,_|_|  \\__,_|\\___|_|\\___|"),
+		"",
+		helpStyle.Render("Distributed, System-Intimate AI Engineering Ecosystem"),
+		"",
+	)
+
 	m := &model{
 		textarea:    ta,
 		editArea:    ea,
@@ -144,6 +156,8 @@ func initialModel(b *brain.Brain) *model {
 		brain:       b,
 		focus:       focusChat,
 		currentPath: cwd,
+		showTree:    true, // Show tree by default
+		banner:      banner,
 	}
 
 	// Load initial tree
@@ -151,19 +165,15 @@ func initialModel(b *brain.Brain) *model {
 
 	// Attempt to restore state
 	var state chatState
-	if err := b.RecallState("chat_session", &state); err == nil {
+	if err := b.RecallState("chat_session", &state); err == nil && len(state.Messages) > 0 {
 		m.messages = state.Messages
 		m.textarea.SetValue(state.Input)
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 		m.viewport.GotoBottom()
 	} else {
-		welcome := lipgloss.JoinVertical(lipgloss.Left,
-			titleStyle.Render("vibeauracle: The Alpha & Omega"),
-			helpStyle.Render("Distributed, System-Intimate AI Engineering Ecosystem"),
-			"",
-			"Type "+systemStyle.Render("/help")+" to see available commands.",
-		)
-		m.viewport.SetContent(welcome)
+		m.messages = append(m.messages, banner)
+		m.messages = append(m.messages, "Type "+systemStyle.Render("/help")+" to see available commands.")
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 	}
 
 	return m
@@ -274,6 +284,31 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			m.applySuggestion()
+			return m, nil
+		case "esc":
+			m.suggestions = nil
+			return m, nil
+		}
+	}
+
+	// Viewport scrolling via arrows when text is empty
+	if m.textarea.Value() == "" {
+		switch msg.String() {
+		case "up":
+			m.viewport.LineUp(1)
+			return m, nil
+		case "down":
+			m.viewport.LineDown(1)
+			return m, nil
+		}
+	} else {
+		// If text exists, maybe allow PgUp/PgDn for scrolling chat anyway?
+		switch msg.String() {
+		case "pgup":
+			m.viewport.ViewUp()
+			return m, nil
+		case "pgdown":
+			m.viewport.ViewDown()
 			return m, nil
 		}
 	}
