@@ -60,6 +60,8 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262"))
 
+	highlight = lipgloss.Color("#7D56F4")
+
 	tagStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFD700")).
 			Bold(true).
@@ -448,38 +450,6 @@ func (m *model) View() string {
 		)
 	}
 
-	suggestionView := ""
-	if len(m.suggestions) > 0 {
-		var sbs []string
-		for i, s := range m.suggestions {
-			style := suggestionStyle
-			if i == m.suggestionIdx {
-				style = selectedSuggestionStyle
-			}
-			
-			// Format: name      path (truncated)
-			name := filepath.Base(s)
-			if m.triggerChar == "/" {
-				name = s
-			}
-			dir := filepath.Dir(s)
-			if dir == "." {
-				dir = ""
-			} else {
-				dir = "  " + dir
-				if len(dir) > 20 {
-					dir = dir[:17] + "..."
-				}
-			}
-			
-			sbs = append(sbs, style.Render(fmt.Sprintf(" %-15s %s ", name, dir)))
-		}
-		suggestionView = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
-			Render(strings.Join(sbs, "\n"))
-	}
-
 	view := fmt.Sprintf(
 		"%s\n%s\n%s\n%s\n%s",
 		header,
@@ -489,11 +459,73 @@ func (m *model) View() string {
 		m.textarea.View(),
 	)
 
-	if suggestionView != "" {
-		// Overlay logic: simplified for TUI
-		view += "\n" + suggestionView
+	if suggs := m.renderSuggestions(); suggs != "" {
+		view += "\n" + suggs
 	}
 
 	return view + "\n"
+}
+
+func (m *model) renderSuggestions() string {
+	if len(m.suggestions) == 0 {
+		return ""
+	}
+
+	maxItems := 10
+	items := m.suggestions
+	if len(items) > maxItems {
+		items = items[:maxItems]
+	}
+
+	width := 50
+	if m.width-10 < width {
+		width = m.width - 4
+	}
+
+	var rows []string
+	for i, s := range items {
+		selected := i == m.suggestionIdx
+		
+		style := suggestionStyle
+		if selected {
+			style = selectedSuggestionStyle
+		}
+
+		name := filepath.Base(s)
+		if m.triggerChar == "/" {
+			name = s
+		}
+		
+		dir := filepath.Dir(s)
+		if dir == "." || m.triggerChar == "/" {
+			dir = ""
+		}
+
+		// Truncate name if path is too long
+		namePart := name
+		if len(namePart) > 20 {
+			namePart = namePart[:17] + "..."
+		}
+
+		dirPart := dir
+		if len(dirPart) > width-25 {
+			dirPart = "..." + dirPart[len(dirPart)-(width-28):]
+		}
+
+		// Calculate spacing for right alignment
+		spacing := width - lipgloss.Width(namePart) - lipgloss.Width(dirPart) - 2
+		if spacing < 1 {
+			spacing = 1
+		}
+
+		row := fmt.Sprintf(" %s%s%s ", namePart, strings.Repeat(" ", spacing), dirPart)
+		rows = append(rows, style.Width(width).Render(row))
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(highlight).
+		MarginLeft(2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
 }
 
