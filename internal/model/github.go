@@ -64,12 +64,15 @@ func (p *GithubProvider) Generate(ctx context.Context, prompt string) (string, e
 
 // ListModels returns a list of available models from GitHub Models
 func (p *GithubProvider) ListModels(ctx context.Context) ([]string, error) {
-	// GitHub Models uses the standard OpenAI /models endpoint
+	// GitHub Models uses the standard OpenAI /models endpoint or its own models API
 	req, err := http.NewRequestWithContext(ctx, "GET", GithubModelsBaseURL+"/models", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
+	// As per AI.md: Use specific headers for GitHub Models API
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -82,7 +85,6 @@ func (p *GithubProvider) ListModels(ctx context.Context) ([]string, error) {
 	}
 
 	// GitHub Models API can return either a top-level array or an object with a "data" field (OpenAI style)
-	// We use a flexible map to decode first, then extract correctly.
 	var raw interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decoding github models: %w", err)
@@ -91,21 +93,34 @@ func (p *GithubProvider) ListModels(ctx context.Context) ([]string, error) {
 	var models []string
 	
 	processEntry := func(m map[string]interface{}) {
-		id, _ := m["id"].(string)
+		// Use "name" as the primary identifier if available, per AI.md example
 		name, _ := m["name"].(string)
+		id, _ := m["id"].(string)
 		
-		target := id
+		target := name
 		if target == "" {
-			target = name
+			target = id
 		}
 
 		if target != "" {
-			// Filter for chat-friendly models if it's GitHub
-			isChat := strings.Contains(strings.ToLower(target), "gpt") || 
-				strings.Contains(strings.ToLower(target), "llama") || 
-				strings.Contains(strings.ToLower(target), "phi") || 
-				strings.Contains(strings.ToLower(target), "mistral") ||
-				strings.Contains(strings.ToLower(target), "codellama")
+			// Per AI.md: Filter for chat-friendly models. 
+			// We check the "task" field, but we also check "type" and name patterns 
+			// to ensure we don't miss anything that could be used for chat.
+			task, _ := m["task"].(string)
+			lTask := strings.ToLower(task)
+			isChat := strings.Contains(lTask, "chat") || strings.Contains(lTask, "completion")
+			
+			// Fallback: name-based filtering if task info is missing or generic
+			if !isChat || lTask == "" {
+				lTarget := strings.ToLower(target)
+				isChat = isChat || strings.Contains(lTarget, "gpt") || 
+					strings.Contains(lTarget, "llama") || 
+					strings.Contains(lTarget, "phi") || 
+					strings.Contains(lTarget, "mistral") ||
+					strings.Contains(lTarget, "mixtral") ||
+					strings.Contains(lTarget, "command") ||
+					strings.Contains(lTarget, "claude")
+			}
 			
 			if isChat {
 				models = append(models, target)
