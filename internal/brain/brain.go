@@ -125,6 +125,21 @@ User Request (Thread ID: %s):
 	}, nil
 }
 
+// StoreState persists application state
+func (b *Brain) StoreState(id string, state interface{}) error {
+	return b.memory.SaveState(id, state)
+}
+
+// RecallState retrieves application state
+func (b *Brain) RecallState(id string, target interface{}) error {
+	return b.memory.LoadState(id, target)
+}
+
+// ClearState removes application state
+func (b *Brain) ClearState(id string) error {
+	return b.memory.ClearState(id)
+}
+
 // GetSnapshot returns a current snapshot of system resources via the monitor
 func (b *Brain) GetSnapshot() (sys.Snapshot, error) {
 	return b.monitor.GetSnapshot()
