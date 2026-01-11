@@ -14,6 +14,14 @@ func (m *MockProvider) Generate(ctx context.Context, prompt string) (string, err
 	return m.Response, m.Err
 }
 
+func (m *MockProvider) ListModels(ctx context.Context) ([]string, error) {
+	return []string{"mock-model"}, nil
+}
+
+func (m *MockProvider) Name() string {
+	return "mock"
+}
+
 func TestModel_Generate(t *testing.T) {
 	mock := &MockProvider{Response: "Test Response"}
 	m := New(mock)

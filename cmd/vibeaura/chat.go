@@ -225,45 +225,6 @@ func initialModel(b *brain.Brain) *model {
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.ShowLineNumbers = false
 
-	// Add highlighting for commands and subcommands
-	ta.Highlighter = func(v string) string {
-		parts := strings.Split(v, " ")
-		for i, p := range parts {
-			if strings.HasPrefix(p, "/") {
-				// Check if it's a known command or subcommand
-				isKnown := false
-				for _, c := range allCommands {
-					if c == p {
-						isKnown = true
-						break
-					}
-				}
-				if !isKnown {
-					for _, subs := range subCommands {
-						for _, s := range subs {
-							if s == p {
-								isKnown = true
-								break
-							}
-						}
-						if isKnown {
-							break
-						}
-					}
-				}
-
-				if isKnown {
-					parts[i] = systemStyle.Render(p)
-				} else {
-					parts[i] = errorStyle.Render(p)
-				}
-			} else if strings.HasPrefix(p, "#") {
-				parts[i] = tagStyle.Render(p)
-			}
-		}
-		return strings.Join(parts, " ")
-	}
-
 	ea := textarea.New()
 	ea.Placeholder = "Edit file... (Esc to cancel, Ctrl+S to save)"
 	ea.ShowLineNumbers = true
