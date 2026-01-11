@@ -24,18 +24,46 @@ type model struct {
 	initialized bool
 }
 
+var (
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7D56F4")).
+			Padding(0, 1)
+
+	userStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#EE6FF8")).
+			Bold(true)
+
+	aiStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#04D9FF")).
+			Bold(true)
+
+	systemStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FAFAFA")).
+			Background(lipgloss.Color("#7D56F4")).
+			Padding(0, 1).
+			Bold(true)
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF0000")).
+			Bold(true)
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#626262"))
+)
+
 type chatState struct {
 	Messages []string `json:"messages"`
 	Input    string   `json:"input"`
 }
 
-func initialModel(b *brain.Brain) model {
+func initialModel(b *brain.Brain) *model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message or type / for commands..."
 	ta.Focus()
 
 	ta.Prompt = "┃ "
-	ta.CharLimit = 1000
+	ta.CharLimit = 2000
 
 	ta.SetWidth(60)
 	ta.SetHeight(3)
@@ -46,7 +74,7 @@ func initialModel(b *brain.Brain) model {
 
 	vp := viewport.New(60, 15)
 	
-	m := model{
+	m := &model{
 		textarea: ta,
 		viewport: vp,
 		messages: []string{},
@@ -61,19 +89,23 @@ func initialModel(b *brain.Brain) model {
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 		m.viewport.GotoBottom()
 	} else {
-		vp.SetContent(`Welcome to vibeauracle.
-The Alpha & Omega of AI Engineering.
-type /help for commands.`)
+		welcome := lipgloss.JoinVertical(lipgloss.Left,
+			titleStyle.Render("vibeauracle: The Alpha & Omega"),
+			helpStyle.Render("Distributed, System-Intimate AI Engineering Ecosystem"),
+			"",
+			"Type "+systemStyle.Render("/help")+" to see available commands.",
+		)
+		m.viewport.SetContent(welcome)
 	}
 
 	return m
 }
 
-func (m model) Init() tea.Cmd {
+func (m *model) Init() tea.Cmd {
 	return textarea.Blink
 }
 
-func (m model) saveState() {
+func (m *model) saveState() {
 	state := chatState{
 		Messages: m.messages,
 		Input:    m.textarea.Value(),
@@ -81,7 +113,7 @@ func (m model) saveState() {
 	m.brain.StoreState("chat_session", state)
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd
@@ -96,7 +128,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
 		m.textarea.SetWidth(msg.Width)
-		m.viewport.Height = msg.Height - m.textarea.Height() - 5
+		m.viewport.Height = msg.Height - m.textarea.Height() - 6
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
@@ -114,7 +146,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Add user message via a response update
-			m.messages = append(m.messages, fmt.Sprintf("You: %s", v))
+			m.messages = append(m.messages, userStyle.Render("You: ")+v)
 			m.textarea.Reset()
 			m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 			m.viewport.GotoBottom()
@@ -127,9 +159,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case brain.Response:
 		if msg.Error != nil {
-			m.messages = append(m.messages, fmt.Sprintf("Error: %v", msg.Error))
+			m.messages = append(m.messages, errorStyle.Render("Error: ")+msg.Error.Error())
 		} else {
-			m.messages = append(m.messages, fmt.Sprintf("AI: %s", msg.Content))
+			m.messages = append(m.messages, aiStyle.Render("AI: ")+msg.Content)
 		}
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 		m.viewport.GotoBottom()
@@ -139,7 +171,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(tiCmd, vpCmd)
 }
 
-func (m model) processRequest(content string) tea.Cmd {
+func (m *model) processRequest(content string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		req := brain.Request{
@@ -151,37 +183,51 @@ func (m model) processRequest(content string) tea.Cmd {
 	}
 }
 
-func (m model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
+func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 	parts := strings.Fields(cmd)
+	m.textarea.Reset()
+	
 	switch parts[0] {
 	case "/help":
-		m.messages = append(m.messages, "Available commands:\n/help - Show this\n/status - System resource snapshot\n/cwd - Show current directory\n/clear - Clear chat\n/exit - Quit")
+		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ") + "\n" + helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /cwd     - Show current directory\n• /version - Show current version info\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
 	case "/status":
 		snapshot, _ := m.brain.GetSnapshot()
-		m.messages = append(m.messages, fmt.Sprintf("System Status:\nCPU: %.1f%%\nMem: %.1f%%", snapshot.CPUUsage, snapshot.MemoryUsage))
+		status := fmt.Sprintf(systemStyle.Render(" SYSTEM ") + "\n" + helpStyle.Render("CPU: %.1f%% | Mem: %.1f%%"), snapshot.CPUUsage, snapshot.MemoryUsage)
+		m.messages = append(m.messages, status)
 	case "/cwd":
 		snapshot, _ := m.brain.GetSnapshot()
-		m.messages = append(m.messages, fmt.Sprintf("Current Directory: %s", snapshot.WorkingDir))
+		m.messages = append(m.messages, systemStyle.Render(" CWD ") + " " + helpStyle.Render(snapshot.WorkingDir))
+	case "/version":
+		m.messages = append(m.messages, systemStyle.Render(" VERSION ") + " " + helpStyle.Render(Version+" ("+Commit+")"))
 	case "/clear":
 		m.messages = []string{}
-		m.viewport.SetContent("Chat cleared.")
+		m.viewport.SetContent(systemStyle.Render(" Session Cleared "))
+		return m, nil
 	case "/exit":
 		return m, tea.Quit
 	default:
-		m.messages = append(m.messages, fmt.Sprintf("Unknown command: %s", parts[0]))
+		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ") + parts[0])
 	}
-	m.textarea.Reset()
+	
 	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 	m.viewport.GotoBottom()
 	return m, nil
 }
 
-func (m model) View() string {
+func (m *model) View() string {
+	header := titleStyle.Render(" vibeauracle ") + " " + helpStyle.Render("v" + Version)
+	border := strings.Repeat("─", m.width)
+	if m.width > 20 {
+		border = strings.Repeat("─", m.width-1)
+	}
+
 	return fmt.Sprintf(
-		"%s\n\n%s\n\n%s",
-		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")).Render("vibeauracle"),
+		"%s\n%s\n%s\n%s\n%s",
+		header,
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#444444")).Render(border),
 		m.viewport.View(),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#444444")).Render(border),
 		m.textarea.View(),
-	) + "\n\n"
+	) + "\n"
 }
 
