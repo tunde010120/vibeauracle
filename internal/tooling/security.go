@@ -144,9 +144,9 @@ func WrapWithSecurity(t Tool, guard *SecurityGuard) Tool {
 }
 
 // Execute performs security validation before delegating to the underlying Tool.
-func (st *SecureTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (st *SecureTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	if err := st.guard.ValidateRequest(st.Tool, args); err != nil {
-		return nil, err
+		return &ToolResult{Status: "error", Error: err}, err
 	}
 	return st.Tool.Execute(ctx, args)
 }

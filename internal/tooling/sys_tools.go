@@ -25,6 +25,9 @@ func (t *ReadFileTool) Metadata() ToolMetadata {
 		Name:        "sys_read_file",
 		Description: "Read the content of a file from the filesystem.",
 		Source:      "system",
+		Category:    CategoryFileSystem,
+		Roles:       []AgentRole{RoleCoder, RoleEngineer},
+		Complexity:  2,
 		Permissions: []Permission{PermRead},
 		Parameters: json.RawMessage(`{
 			"type": "object",
@@ -36,7 +39,7 @@ func (t *ReadFileTool) Metadata() ToolMetadata {
 	}
 }
 
-func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	var input struct {
 		Path string `json:"path"`
 	}
@@ -45,9 +48,13 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (inter
 	}
 	content, err := t.fs.ReadFile(input.Path)
 	if err != nil {
-		return nil, err
+		return &ToolResult{Status: "error", Error: err}, err
 	}
-	return string(content), nil
+	return &ToolResult{
+		Status:  "success",
+		Content: string(content),
+		Data:    map[string]interface{}{"size": len(content)},
+	}, nil
 }
 
 // WriteFileTool creates or overwrites a file.
@@ -62,8 +69,11 @@ func NewWriteFileTool(f sys.FS) *WriteFileTool {
 func (t *WriteFileTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "sys_write_file",
-		Description: "Create or overwrite a file with specific content. Highly sensitive.",
+		Description: "Create or overwrite a file with specific content.",
 		Source:      "system",
+		Category:    CategoryFileSystem,
+		Roles:       []AgentRole{RoleCoder, RoleEngineer},
+		Complexity:  5,
 		Permissions: []Permission{PermWrite},
 		Parameters: json.RawMessage(`{
 			"type": "object",
@@ -76,7 +86,7 @@ func (t *WriteFileTool) Metadata() ToolMetadata {
 	}
 }
 
-func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	var input struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -86,9 +96,13 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (inte
 	}
 	err := t.fs.WriteFile(input.Path, []byte(input.Content))
 	if err != nil {
-		return nil, err
+		return &ToolResult{Status: "error", Error: err}, err
 	}
-	return "File written successfully", nil
+	return &ToolResult{
+		Status:    "success",
+		Content:   "File written successfully",
+		Artifacts: []string{input.Path},
+	}, nil
 }
 
 // ShellExecTool runs a shell command.
@@ -97,8 +111,11 @@ type ShellExecTool struct{}
 func (t *ShellExecTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "sys_shell_exec",
-		Description: "Execute a shell command. Returns stdout and stderr. Use with extreme caution.",
+		Description: "Execute a shell command.",
 		Source:      "system",
+		Category:    CategorySystem,
+		Roles:       []AgentRole{RoleEngineer},
+		Complexity:  8,
 		Permissions: []Permission{PermExecute},
 		Parameters: json.RawMessage(`{
 			"type": "object",
@@ -111,7 +128,7 @@ func (t *ShellExecTool) Metadata() ToolMetadata {
 	}
 }
 
-func (t *ShellExecTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (t *ShellExecTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	var input struct {
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
@@ -122,10 +139,17 @@ func (t *ShellExecTool) Execute(ctx context.Context, args json.RawMessage) (inte
 
 	cmd := exec.CommandContext(ctx, input.Command, input.Args...)
 	output, err := cmd.CombinedOutput()
+	status := "success"
 	if err != nil {
-		return nil, fmt.Errorf("command failed: %w (output: %s)", err, string(output))
+		status = "error"
 	}
-	return string(output), nil
+
+	return &ToolResult{
+		Status:  status,
+		Content: string(output),
+		Meta:    map[string]interface{}{"command": input.Command},
+		Error:   err,
+	}, nil // We return nil error here because the *execution* succeeded, even if the command failed, but we populate Error in struct
 }
 
 // SystemInfoTool provides a snapshot of system resources.
@@ -140,15 +164,26 @@ func NewSystemInfoTool(m *sys.Monitor) *SystemInfoTool {
 func (t *SystemInfoTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "sys_info",
-		Description: "Get a snapshot of current system resource usage (CPU, Memory) and working directory.",
+		Description: "Get a snapshot of current system resource usage.",
 		Source:      "system",
+		Category:    CategorySystem,
+		Roles:       []AgentRole{RoleAll},
+		Complexity:  1,
 		Permissions: []Permission{PermRead},
 		Parameters:  json.RawMessage(`{"type": "object"}`),
 	}
 }
 
-func (t *SystemInfoTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	return t.monitor.GetSnapshot()
+func (t *SystemInfoTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
+	snap, err := t.monitor.GetSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	return &ToolResult{
+		Status:  "success",
+		Content: fmt.Sprintf("CPU: %.1f%%, RAM: %.1f%%, CWD: %s", snap.CPUPercent, snap.MemoryPercent, snap.WorkingDir),
+		Data:    snap,
+	}, nil
 }
 
 // ListFilesTool lists files in a directory.
@@ -165,6 +200,9 @@ func (t *ListFilesTool) Metadata() ToolMetadata {
 		Name:        "sys_list_files",
 		Description: "List files and directories in a given path.",
 		Source:      "system",
+		Category:    CategoryFileSystem,
+		Roles:       []AgentRole{RoleCoder, RoleEngineer},
+		Complexity:  2,
 		Permissions: []Permission{PermRead},
 		Parameters: json.RawMessage(`{
 			"type": "object",
@@ -176,14 +214,22 @@ func (t *ListFilesTool) Metadata() ToolMetadata {
 	}
 }
 
-func (t *ListFilesTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (t *ListFilesTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	var input struct {
 		Path string `json:"path"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, err
 	}
-	return t.fs.ListFiles(input.Path)
+	files, err := t.fs.ListFiles(input.Path)
+	if err != nil {
+		return &ToolResult{Status: "error", Error: err}, err
+	}
+	return &ToolResult{
+		Status:  "success",
+		Content: fmt.Sprintf("Found %d files", len(files)),
+		Data:    files,
+	}, nil
 }
 
 // FetchURLTool fetches content from a URL.
@@ -194,6 +240,9 @@ func (t *FetchURLTool) Metadata() ToolMetadata {
 		Name:        "http_fetch",
 		Description: "Fetch the content of a public URL (HTTP/HTTPS).",
 		Source:      "system",
+		Category:    CategoryNetwork,
+		Roles:       []AgentRole{RoleEngineer, RoleArchitect},
+		Complexity:  4,
 		Permissions: []Permission{PermNetwork},
 		Parameters: json.RawMessage(`{
 			"type": "object",
@@ -205,7 +254,7 @@ func (t *FetchURLTool) Metadata() ToolMetadata {
 	}
 }
 
-func (t *FetchURLTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (t *FetchURLTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	var input struct {
 		URL string `json:"url"`
 	}
@@ -220,14 +269,18 @@ func (t *FetchURLTool) Execute(ctx context.Context, args json.RawMessage) (inter
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return &ToolResult{Status: "error", Error: err}, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return &ToolResult{Status: "error", Error: err}, err
 	}
 
-	return string(body), nil
+	return &ToolResult{
+		Status:  "success",
+		Content: string(body),
+		Meta:    map[string]interface{}{"status_code": resp.StatusCode},
+	}, nil
 }
