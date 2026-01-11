@@ -181,7 +181,7 @@ func (t *SystemInfoTool) Execute(ctx context.Context, args json.RawMessage) (*To
 	}
 	return &ToolResult{
 		Status:  "success",
-		Content: fmt.Sprintf("CPU: %.1f%%, RAM: %.1f%%, CWD: %s", snap.CPUPercent, snap.MemoryPercent, snap.WorkingDir),
+		Content: fmt.Sprintf("CPU: %.1f%%, RAM: %.1f%%, CWD: %s", snap.CPUUsage, snap.MemoryUsage, snap.WorkingDir),
 		Data:    snap,
 	}, nil
 }

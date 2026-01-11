@@ -68,7 +68,7 @@ type ExternalMCPTool struct {
 
 func (t *ExternalMCPTool) Metadata() ToolMetadata { return t.meta }
 
-func (t *ExternalMCPTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (t *ExternalMCPTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	return t.client.CallTool(ctx, t.meta.Name, args)
 }
 
@@ -139,7 +139,7 @@ func (c *MCPClient) ListTools(ctx context.Context) ([]MCPTool, error) {
 	return resp.Result.Tools, nil
 }
 
-func (c *MCPClient) CallTool(ctx context.Context, name string, args json.RawMessage) (interface{}, error) {
+func (c *MCPClient) CallTool(ctx context.Context, name string, args json.RawMessage) (*ToolResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -179,8 +179,25 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, args json.RawMess
 	}
 
 	if resp.Error != nil {
-		return nil, fmt.Errorf("mcp error: %v", resp.Error)
+		return &ToolResult{Status: "error", Error: fmt.Errorf("%v", resp.Error)}, fmt.Errorf("mcp error: %v", resp.Error)
 	}
 
-	return resp.Result, nil
+	// Concatenate text content
+	var content string
+	for _, part := range resp.Result.Content {
+		if part.Type == "text" {
+			content += part.Text + "\n"
+		}
+	}
+
+	status := "success"
+	if resp.Result.IsError {
+		status = "error"
+	}
+
+	return &ToolResult{
+		Status:  status,
+		Content: content,
+		Data:    resp.Result,
+	}, nil
 }
