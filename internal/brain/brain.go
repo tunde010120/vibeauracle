@@ -201,10 +201,14 @@ func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 	// 3. Tool Awareness
 	toolDefs := b.tools.GetPromptDefinitions()
 
-	// 4. Prompt System: classify + layer instructions + inject recall + build final prompt
+	// 4. Update Rolling Context Window
+	b.memory.AddToWindow(req.ID, req.Content, "user_prompt")
+
+	// 5. Prompt System: classify + layer instructions + inject recall + build final prompt
 	augmentedPrompt := ""
 	var recs []prompt.Recommendation
 	var promptIntent prompt.Intent
+
 	if b.config.Prompt.Enabled && b.prompts != nil {
 		env, builtRecs, err := b.prompts.Build(ctx, req.Content, snapshot, toolDefs)
 		if err != nil {
@@ -217,9 +221,11 @@ func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 		recs = builtRecs
 		promptIntent = env.Intent
 	} else {
-		// Fallback to prior behavior (kept for safety / config disable)
+		// Fallback to prior behavior with Enhanced Context Window
+		// Recall now triggers the tiered window search
 		snippets, _ := b.memory.Recall(req.Content)
 		contextStr := strings.Join(snippets, "\n")
+
 		augmentedPrompt = fmt.Sprintf(`System Context:
 %s
 

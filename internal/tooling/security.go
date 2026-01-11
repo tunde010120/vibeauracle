@@ -143,6 +143,11 @@ func WrapWithSecurity(t Tool, guard *SecurityGuard) Tool {
 	return &SecureTool{Tool: t, guard: guard}
 }
 
+// Metadata delegates to the underlying tool, essential for the interface.
+func (st *SecureTool) Metadata() ToolMetadata {
+	return st.Tool.Metadata()
+}
+
 // Execute performs security validation before delegating to the underlying Tool.
 func (st *SecureTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	if err := st.guard.ValidateRequest(st.Tool, args); err != nil {
