@@ -1082,9 +1082,19 @@ func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
 			} else {
 				m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(providerName))+"\n"+helpStyle.Render(fmt.Sprintf("%s API key received and stored securely.", strings.Title(providerName))))
 			}
+
+			// Optional: set custom endpoint if provided as 3rd arg
+			if len(parts) > 3 {
+				endpoint := parts[3]
+				cfg := m.brain.Config()
+				cfg.Model.Endpoint = endpoint
+				if err := m.brain.UpdateConfig(cfg); err == nil {
+					m.messages = append(m.messages, helpStyle.Render("Endpoint set to: "+endpoint))
+				}
+			}
 		} else {
 			providerTitle := strings.Title(strings.TrimPrefix(provider, "/"))
-			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(providerTitle))+"\n"+helpStyle.Render(fmt.Sprintf("Usage: /auth %s <api-key>", provider)))
+			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(providerTitle))+"\n"+helpStyle.Render(fmt.Sprintf("Usage: /auth %s <api-key> [endpoint]", provider)))
 		}
 	default:
 		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+errorStyle.Render(fmt.Sprintf(" Provider '%s' not yet integrated ", provider)))

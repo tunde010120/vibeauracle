@@ -75,6 +75,7 @@ func (b *Brain) initProvider() {
 	configMap := map[string]string{
 		"endpoint": b.config.Model.Endpoint,
 		"model":    b.config.Model.Name,
+		"base_url": b.config.Model.Endpoint, // Map endpoint to base_url for OpenAI/Others
 	}
 
 	// Fetch credentials from vault
@@ -111,6 +112,7 @@ func (b *Brain) DiscoverModels(ctx context.Context) ([]ModelDiscovery, error) {
 	for _, pName := range providersToCheck {
 		configMap := map[string]string{
 			"endpoint": b.config.Model.Endpoint,
+			"base_url": b.config.Model.Endpoint,
 		}
 
 		// Hydrate with credentials
