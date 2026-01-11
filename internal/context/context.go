@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/glebarez/go-sqlite"
 )
 
 // Memory handles long-term and short-term memory using SQLite
@@ -21,7 +21,7 @@ func NewMemory() *Memory {
 	os.MkdirAll(dbDir, 0755)
 	
 	dbPath := filepath.Join(dbDir, "vibe.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		fmt.Printf("Error opening database: %v\n", err)
 		return &Memory{}
