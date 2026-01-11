@@ -13,6 +13,14 @@ func (m *MockProvider) Generate(ctx context.Context, prompt string) (string, err
 	return "Mocked AI Response", nil
 }
 
+func (m *MockProvider) ListModels(ctx context.Context) ([]string, error) {
+	return []string{"mock-model"}, nil
+}
+
+func (m *MockProvider) Name() string {
+	return "mock"
+}
+
 func TestBrain_Process(t *testing.T) {
 	b := New()
 	// Inject mock provider to avoid network/ollama dependency in tests

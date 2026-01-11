@@ -77,7 +77,139 @@ the IDE, and the AI assistant into a single system-aware experience.`,
 	},
 }
 
+var authCmd = &cobra.Command{
+	Use:   "auth",
+	Short: "Manage AI provider credentials",
+	Long:  "Securely store and manage API keys for providers like GitHub Models, OpenAI, and Ollama.",
+}
+
+var authGithubCmd = &cobra.Command{
+	Use:   "github-models <token>",
+	Short: "Configure GitHub Models PAT",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		token := args[0]
+		b := brain.New()
+		err := b.StoreSecret("github_models_pat", token)
+		if err != nil {
+			fmt.Printf("\033[31mError storing secret: %v\033[0m\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("\033[32mGitHub Models PAT stored successfully in secure vault.\033[0m")
+	},
+}
+
+var authOllamaCmd = &cobra.Command{
+	Use:   "ollama <endpoint>",
+	Short: "Configure Ollama endpoint",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		endpoint := args[0]
+		b := brain.New()
+		cfg := b.Config()
+		cfg.Model.Endpoint = endpoint
+		if err := b.UpdateConfig(cfg); err != nil {
+			fmt.Printf("\033[31mError updating endpoint: %v\033[0m\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\033[32mOllama endpoint set to: %s\033[0m\n", endpoint)
+	},
+}
+
+var authOpenAICmd = &cobra.Command{
+	Use:   "openai <api-key>",
+	Short: "Configure OpenAI API key",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		key := args[0]
+		b := brain.New()
+		err := b.StoreSecret("openai_api_key", key)
+		if err != nil {
+			fmt.Printf("\033[31mError storing secret: %v\033[0m\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("\033[32mOpenAI API key stored successfully in secure vault.\033[0m")
+	},
+}
+
+var modelsCmd = &cobra.Command{
+	Use:   "models",
+	Short: "Discover and manage AI models",
+}
+
+var modelsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all models from active providers",
+	Run: func(cmd *cobra.Command, args []string) {
+		b := brain.New()
+		fmt.Println("\033[35mDISCOVERING MODELS...\033[0m")
+		discoveries, err := b.DiscoverModels(cmd.Context())
+		if err != nil {
+			fmt.Printf("\033[31mError discovering models: %v\033[0m\n", err)
+			os.Exit(1)
+		}
+
+		if len(discoveries) == 0 {
+			fmt.Println("\033[33mNo models found. Use 'auth' to configure providers.\033[0m")
+			return
+		}
+
+		fmt.Println("\033[1;36mAVAILABLE MODELS:\033[0m")
+		for _, d := range discoveries {
+			fmt.Printf("\033[32m•\033[0m \033[1m%-30s\033[0m \033[90m(%s)\033[0m\n", d.Name, d.Provider)
+		}
+		fmt.Println("\n\033[34mUse 'models use <provider> <model>' to switch.\033[0m")
+	},
+}
+
+var modelsUseCmd = &cobra.Command{
+	Use:   "use <provider> <model>",
+	Short: "Switch the active model",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		provider := args[0]
+		modelName := args[1]
+		b := brain.New()
+		err := b.SetModel(provider, modelName)
+		if err != nil {
+			fmt.Printf("\033[31mError switching model: %v\033[0m\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\033[32mSuccessfully switched to \033[1m%s\033[0m \033[32mvia %s\033[0m\n", modelName, provider)
+	},
+}
+
+var sysCmd = &cobra.Command{
+	Use:   "sys",
+	Short: "System and hardware intimacy controls",
+}
+
+var sysStatsCmd = &cobra.Command{
+	Use:   "stats",
+	Short: "Show system resource usage",
+	Run: func(cmd *cobra.Command, args []string) {
+		b := brain.New()
+		snapshot, _ := b.GetSnapshot()
+		fmt.Printf("\033[1;36mPOWER SNAPSHOT\033[0m\n")
+		fmt.Printf("\033[32mCPU Usage:\033[0m %.1f%%\n", snapshot.CPUUsage)
+		fmt.Printf("\033[32mMem Usage:\033[0m %.1f%%\n", snapshot.MemoryUsage)
+		fmt.Printf("\033[32mCWD:\033[0m       %s\n", snapshot.WorkingDir)
+	},
+}
+
 func main() {
+	rootCmd.AddCommand(authCmd)
+	authCmd.AddCommand(authGithubCmd)
+	authCmd.AddCommand(authOllamaCmd)
+	authCmd.AddCommand(authOpenAICmd)
+
+	rootCmd.AddCommand(modelsCmd)
+	modelsCmd.AddCommand(modelsListCmd)
+	modelsCmd.AddCommand(modelsUseCmd)
+
+	rootCmd.AddCommand(sysCmd)
+	sysCmd.AddCommand(sysStatsCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

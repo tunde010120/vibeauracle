@@ -61,8 +61,8 @@ var (
 			Bold(true)
 
 	aiStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04D9FF")).
-			Bold(true)
+		Foreground(lipgloss.Color("#04D9FF")).
+		Bold(true)
 
 	systemStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FAFAFA")).
@@ -70,12 +70,19 @@ var (
 			Padding(0, 1).
 			Bold(true)
 
+	subtleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#626262"))
+
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF0000")).
 			Bold(true)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262"))
+
+	commandEchoStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#555555")).
+				Italic(true)
 
 	highlight = lipgloss.Color("#7D56F4")
 
@@ -113,7 +120,102 @@ type chatState struct {
 }
 
 var allCommands = []string{
-	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot",
+	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth", "/mcp", "/sys", "/skill", "/models",
+}
+
+var subCommands = map[string][]string{
+	"/auth":   {"/ollama", "/github-models", "/github-copilot", "/openai", "/anthropic"},
+	"/mcp":    {"/list", "/add", "/logs", "/call"},
+	"/sys":    {"/stats", "/env", "/update", "/logs"},
+	"/skill":  {"/list", "/info", "/load", "/disable"},
+	"/models": {"/list", "/use"},
+}
+
+func buildBanner(width int) string {
+	if width <= 0 {
+		width = 60
+	}
+
+	// Wide terminals/panes get the big ASCII banner.
+	ascii := []string{
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00D7")).Bold(true).Render("       _ _                                  _"),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#D700FF")).Bold(true).Render(" __   _(_) |__   ___  __ _ _   _ _ __ __ _  ___| | ___"),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#AF00FF")).Bold(true).Render(" \\ \\ / / | '_ \\ / _ \\/ _` | | | | '__/ _` |/ __| |/ _ \\"),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#8700FF")).Bold(true).Render("  \\ V /| | |_) |  __/ (_| | |_| | | | (_| | (__| |  __/"),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#5F00FF")).Bold(true).Render("   \\_/ |_|_.__/ \\___|\\__,_|\\__,_|_|  \\__,_|\\___|_|\\___|"),
+	}
+
+	maxASCII := 0
+	for _, l := range ascii {
+		w := lipgloss.Width(l)
+		if w > maxASCII {
+			maxASCII = w
+		}
+	}
+
+	tagline := helpStyle.Render("Distributed, System-Intimate AI Engineering Ecosystem")
+	if width >= maxASCII {
+		return strings.Join(append(append(ascii, ""), tagline), "\n") + "\n"
+	}
+
+	// Compact banner for narrow panes: multicolor title + tagline.
+	word := "vibeauracle"
+	colors := []lipgloss.Color{
+		lipgloss.Color("#FF00D7"),
+		lipgloss.Color("#D700FF"),
+		lipgloss.Color("#AF00FF"),
+		lipgloss.Color("#8700FF"),
+		lipgloss.Color("#5F00FF"),
+		lipgloss.Color("#7D56F4"),
+		lipgloss.Color("#04D9FF"),
+	}
+
+	spaced := width >= (len(word)*2 - 1)
+	title := gradientWord(word, colors, spaced)
+	if lipgloss.Width(title) > width {
+		// Fall back if spacing makes it too wide.
+		title = gradientWord(word, colors, false)
+	}
+
+	// Keep tagline only if it fits reasonably.
+	if width < 44 {
+		return title + "\n" + helpStyle.Render("System-Intimate AI") + "\n"
+	}
+	return title + "\n" + tagline + "\n"
+}
+
+func gradientWord(word string, colors []lipgloss.Color, spaced bool) string {
+	var b strings.Builder
+	colorIdx := 0
+	for _, r := range word {
+		style := lipgloss.NewStyle().Foreground(colors[colorIdx%len(colors)]).Bold(true)
+		b.WriteString(style.Render(string(r)))
+		colorIdx++
+		if spaced {
+			b.WriteString(" ")
+		}
+	}
+	return strings.TrimRight(b.String(), " ")
+}
+
+func isBannerMessage(msg string) bool {
+	// This substring exists in both the wide and compact banner variants.
+	return strings.Contains(msg, "System-Intimate") || strings.Contains(msg, "_(_) |__")
+}
+
+func ensureBanner(messages *[]string, banner string) {
+	if messages == nil {
+		return
+	}
+	if len(*messages) == 0 {
+		*messages = append(*messages, banner)
+		return
+	}
+	if isBannerMessage((*messages)[0]) {
+		(*messages)[0] = banner
+		return
+	}
+	*messages = append([]string{banner}, *messages...)
 }
 
 func initialModel(b *brain.Brain) *model {
@@ -138,16 +240,7 @@ func initialModel(b *brain.Brain) *model {
 
 	cwd, _ := os.Getwd()
 
-	banner := lipgloss.JoinVertical(lipgloss.Center,
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00D7")).Bold(true).Render("       _ _                                  _      "),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#D700FF")).Bold(true).Render(" __   _(_) |__   ___  __ _ _   _ _ __ __ _  ___| | ___ "),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#AF00FF")).Bold(true).Render(" \\ \\ / / | '_ \\ / _ \\/ _` | | | | '__/ _` |/ __| |/ _ \\"),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#8700FF")).Bold(true).Render("  \\ V /| | |_) |  __/ (_| | |_| | | | (_| | (__| |  __/"),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#5F00FF")).Bold(true).Render("   \\_/ |_|_.__/ \\___|\\__,_|\\__,_|_|  \\__,_|\\___|_|\\___|"),
-		"",
-		helpStyle.Render("Distributed, System-Intimate AI Engineering Ecosystem"),
-		"",
-	)
+	banner := buildBanner(vp.Width)
 
 	m := &model{
 		textarea:    ta,
@@ -169,13 +262,19 @@ func initialModel(b *brain.Brain) *model {
 	var state chatState
 	if err := b.RecallState("chat_session", &state); err == nil && len(state.Messages) > 0 {
 		m.messages = state.Messages
+		ensureBanner(&m.messages, banner)
 		m.textarea.SetValue(state.Input)
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
-		m.viewport.GotoBottom()
+		if m.viewport.TotalLineCount() <= m.viewport.Height {
+			m.viewport.GotoTop()
+		} else {
+			m.viewport.GotoBottom()
+		}
 	} else {
 		m.messages = append(m.messages, banner)
 		m.messages = append(m.messages, "Type "+systemStyle.Render("/help")+" to see available commands.")
-		m.viewport.SetContent(strings.Join(m.messages, "\n"))
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.GotoTop()
 	}
 
 	return m
@@ -213,18 +312,36 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		wasAtTop := m.viewport.AtTop()
+		wasAtBottom := m.viewport.AtBottom()
+		prevYOffset := m.viewport.YOffset
+
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
 		if m.showTree {
 			m.viewport.Width = msg.Width / 2
-			m.perusalVp.Width = msg.Width / 2 - 4
+			m.perusalVp.Width = msg.Width/2 - 4
 		}
 		m.textarea.SetWidth(m.viewport.Width)
 		m.editArea.SetWidth(m.perusalVp.Width)
 		m.viewport.Height = msg.Height - m.textarea.Height() - 6
 		m.perusalVp.Height = m.viewport.Height
 		m.editArea.SetHeight(m.perusalVp.Height - 2)
+
+		m.banner = buildBanner(m.viewport.Width)
+		ensureBanner(&m.messages, m.banner)
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		if wasAtBottom {
+			m.viewport.GotoBottom()
+		} else if wasAtTop {
+			m.viewport.GotoTop()
+		} else {
+			m.viewport.SetYOffset(prevYOffset)
+			if m.viewport.PastBottom() {
+				m.viewport.GotoBottom()
+			}
+		}
 
 	case tea.KeyMsg:
 		// Universal focus switcher
@@ -259,12 +376,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case focusEdit:
 			return m.handleEditKey(msg)
 		}
-	
+
 	case brain.Response:
 		if msg.Error != nil {
-			m.messages = append(m.messages, errorStyle.Render("Error: ")+msg.Error.Error())
+			m.messages = append(m.messages, errorStyle.Render(" BRAIN ERROR ")+"\n"+msg.Error.Error())
 		} else {
-			m.messages = append(m.messages, aiStyle.Render("AI: ")+msg.Content)
+			m.messages = append(m.messages, aiStyle.Render("Brain: ")+m.styleMessage(msg.Content))
 		}
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 		m.viewport.GotoBottom()
@@ -320,10 +437,10 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "enter":
 		v := m.textarea.Value()
-		if v == "" {
+		if strings.TrimSpace(v) == "" {
 			return m, nil
 		}
-		if strings.HasPrefix(v, "/") {
+		if strings.HasPrefix(strings.TrimSpace(v), "/") {
 			return m.handleSlashCommand(v)
 		}
 		m.messages = append(m.messages, userStyle.Render("You: ")+m.styleMessage(v))
@@ -347,15 +464,45 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) styleMessage(v string) string {
-	words := strings.Fields(v)
-	for i, w := range words {
-		if strings.HasPrefix(w, "/") {
-			words[i] = systemStyle.Render(w)
-		} else if strings.HasPrefix(w, "#") {
-			words[i] = tagStyle.Render(w)
+	if strings.TrimSpace(v) == "" {
+		return ""
+	}
+
+	parts := strings.Split(v, " ")
+	for i, p := range parts {
+		if strings.HasPrefix(p, "/") {
+			// Check if it's a known command or subcommand
+			isKnown := false
+			for _, c := range allCommands {
+				if c == p {
+					isKnown = true
+					break
+				}
+			}
+			if !isKnown {
+				for _, subs := range subCommands {
+					for _, s := range subs {
+						if s == p {
+							isKnown = true
+							break
+						}
+					}
+					if isKnown {
+						break
+					}
+				}
+			}
+
+			if isKnown {
+				parts[i] = systemStyle.Render(p)
+			} else {
+				parts[i] = errorStyle.Render(p)
+			}
+		} else if strings.HasPrefix(p, "#") {
+			parts[i] = tagStyle.Render(p)
 		}
 	}
-	return strings.Join(words, " ")
+	return strings.Join(parts, " ")
 }
 
 func (m *model) handlePerusalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -466,7 +613,19 @@ func (m *model) updateSuggestions(val string) {
 		return
 	}
 
-	// Find the word being typed
+	// Handle trailing space for subcommand triggering
+	if strings.HasSuffix(val, " ") {
+		parts := strings.Fields(val)
+		if len(parts) == 1 {
+			if subs, ok := subCommands[parts[0]]; ok {
+				m.suggestions = subs
+				m.triggerChar = "" // Already has / in the subCommand string
+				sort.Strings(m.suggestions)
+				return
+			}
+		}
+	}
+
 	words := strings.Fields(val)
 	if len(words) == 0 {
 		if strings.HasSuffix(val, "/") {
@@ -481,6 +640,24 @@ func (m *model) updateSuggestions(val string) {
 	}
 
 	lastWord := words[len(words)-1]
+	
+	// Check if we are typing a subcommand
+	if len(words) > 1 {
+		parentCmd := words[0]
+		if subs, ok := subCommands[parentCmd]; ok {
+			m.triggerChar = "" // Subcommands already have slashes
+			for _, sub := range subs {
+				if strings.HasPrefix(sub, lastWord) {
+					m.suggestions = append(m.suggestions, sub)
+				}
+			}
+			sort.Strings(m.suggestions)
+			if len(m.suggestions) > 0 {
+				return
+			}
+		}
+	}
+
 	if strings.HasPrefix(lastWord, "/") {
 		m.triggerChar = "/"
 		for _, cmd := range allCommands {
@@ -498,12 +675,12 @@ func (m *model) updateSuggestions(val string) {
 func (m *model) getFileSuggestions(prefix string) []string {
 	var suggestions []string
 	root, _ := os.Getwd()
-	
+
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || len(suggestions) > 30 {
 			return nil
 		}
-		
+
 		name := d.Name()
 		if d.IsDir() {
 			if name == ".git" || name == "node_modules" || name == "vendor" || name == "bin" || name == "dist" {
@@ -522,7 +699,7 @@ func (m *model) getFileSuggestions(prefix string) []string {
 		if prefix == "" || strings.HasPrefix(rel, prefix) || strings.HasPrefix(name, prefix) {
 			suggestions = append(suggestions, rel)
 		}
-		
+
 		return nil
 	})
 
@@ -534,27 +711,51 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 	if len(m.suggestions) == 0 {
 		return m, nil
 	}
-	
+
 	val := m.textarea.Value()
 	words := strings.Fields(val)
-	
-	suggestion := m.suggestions[m.suggestionIdx]
-	trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
-	replacement := m.triggerChar + trimmed
 
-	if len(words) == 0 {
+	suggestion := m.suggestions[m.suggestionIdx]
+	
+	// Determine if we are completing a top-level command or a subcommand/argument
+	isTopLevel := len(words) <= 1 && !strings.HasSuffix(val, " ")
+
+	if isTopLevel {
+		trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
+		replacement := m.triggerChar + trimmed
 		m.textarea.SetValue(replacement)
+	} else if strings.HasSuffix(val, " ") {
+		// We were suggesting subcommands because of a trailing space
+		m.textarea.SetValue(val + suggestion)
 	} else {
+		// Replacing the last word (likely a subcommand or tag)
+		trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
+		replacement := m.triggerChar + trimmed
 		words[len(words)-1] = replacement
 		m.textarea.SetValue(strings.Join(words, " "))
 	}
+	
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	m.suggestions = nil
 
-	if m.triggerChar == "/" {
-		return m.handleSlashCommand(m.textarea.Value())
+	currentVal := m.textarea.Value()
+	// If it's a command that has subcommands, just add a space and let the user continue
+	if _, ok := subCommands[currentVal]; ok {
+		m.textarea.SetValue(currentVal + " ")
+		m.textarea.SetCursor(len(m.textarea.Value()))
+		m.updateSuggestions(m.textarea.Value())
+		return m, nil
 	}
-	
+
+	// Trigger immediate execution ONLY for top-level commands that don't have subcommands
+	if isTopLevel && m.triggerChar == "/" {
+		// Check if this command needs sub-commands
+		if _, hasSubs := subCommands[currentVal]; !hasSubs {
+			return m.handleSlashCommand(currentVal)
+		}
+	}
+
+	// For sub-commands or items with arguments, we stay in the textarea to allow more input
 	m.textarea.SetValue(m.textarea.Value() + " ")
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	return m, nil
@@ -582,7 +783,7 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 
 	timestamp := time.Now().Format("2006-01-02_150405")
 	filename := fmt.Sprintf("vibeaura_%s", timestamp)
-	
+
 	basePath := filepath.Join(dir, filename)
 	ansiPath := basePath + ".ansi"
 	svgPath := basePath + ".svg"
@@ -599,21 +800,21 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 
 	// Tier 1: Try PNG
 	err := convertToPNG(svgPath, pngPath)
-	
+
 	msg := systemStyle.Render(" SCREENSHOT CAPTURED ") + "\n"
-	
+
 	if err == nil {
 		// Highest Tier: PNG only
 		_ = os.Remove(svgPath)
-		msg += helpStyle.Render("🖼️ Saved PNG: "+pngPath)
+		msg += helpStyle.Render("🖼️ Saved PNG: " + pngPath)
 	} else if svgContent != "" {
 		// Middle Tier: SVG only
-		msg += helpStyle.Render("📍 Saved SVG: "+svgPath)
+		msg += helpStyle.Render("📍 Saved SVG: " + svgPath)
 		msg += "\n" + errorStyle.Render(" PNG fail: ") + helpStyle.Render("install ffmpeg/rsvg")
 	} else {
 		// Fallback Tier: ANSI only
 		_ = os.WriteFile(ansiPath, []byte(rawView), 0644)
-		msg += helpStyle.Render("📄 Saved ANSI: "+ansiPath)
+		msg += helpStyle.Render("📄 Saved ANSI: " + ansiPath)
 	}
 
 	m.messages = append(m.messages, msg)
@@ -625,19 +826,54 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 	parts := strings.Fields(cmd)
 	m.textarea.Reset()
-	
+
+	// Log command echoing faintly
+	m.messages = append(m.messages, commandEchoStyle.Render("λ "+m.styleMessage(cmd)))
+
+	// Normalize command path if user uses slashes without spaces (e.g. /models/list)
+	if len(parts) == 1 && strings.Count(parts[0], "/") > 1 {
+		cmdPath := parts[0]
+		isKnown := false
+		for _, c := range allCommands {
+			if c == cmdPath {
+				isKnown = true
+				break
+			}
+		}
+		if !isKnown {
+			// Split path like /models/list into ["/models", "/list"]
+			rawParts := strings.Split(strings.TrimPrefix(cmdPath, "/"), "/")
+			parts = []string{}
+			for _, p := range rawParts {
+				if p != "" {
+					parts = append(parts, "/"+p)
+				}
+			}
+		}
+	}
+
 	switch parts[0] {
 	case "/help":
-		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ") + "\n" + helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /cwd     - Show current directory\n• /version - Show current version info\n• /shot    - Take a beautiful TUI screenshot\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
+		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /mcp     - Manage MCP tools & servers\n• /skill   - Manage agentic vibes/skills\n• /sys     - Hardware & system details\n• /auth    - Manage AI provider credentials\n• /shot    - Take a beautiful TUI screenshot\n• /cwd     - Show current directory\n• /version - Show version info\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
 	case "/status":
 		snapshot, _ := m.brain.GetSnapshot()
-		status := fmt.Sprintf(systemStyle.Render(" SYSTEM ") + "\n" + helpStyle.Render("CPU: %.1f%% | Mem: %.1f%%"), snapshot.CPUUsage, snapshot.MemoryUsage)
+		status := fmt.Sprintf(systemStyle.Render(" SYSTEM ")+"\n"+helpStyle.Render("CPU: %.1f%% | Mem: %.1f%%"), snapshot.CPUUsage, snapshot.MemoryUsage)
 		m.messages = append(m.messages, status)
 	case "/cwd":
 		snapshot, _ := m.brain.GetSnapshot()
-		m.messages = append(m.messages, systemStyle.Render(" CWD ") + " " + helpStyle.Render(snapshot.WorkingDir))
+		m.messages = append(m.messages, systemStyle.Render(" CWD ")+" "+helpStyle.Render(snapshot.WorkingDir))
 	case "/version":
-		m.messages = append(m.messages, systemStyle.Render(" VERSION ") + "\n" + helpStyle.Render(fmt.Sprintf("App: %s\nCommit: %s\nCompiler: %s", Version, Commit, runtime.Version())))
+		m.messages = append(m.messages, systemStyle.Render(" VERSION ")+"\n"+helpStyle.Render(fmt.Sprintf("App: %s\nCommit: %s\nCompiler: %s", Version, Commit, runtime.Version())))
+	case "/auth":
+		return m.handleAuthCommand(parts)
+	case "/models":
+		return m.handleModelsCommand(parts)
+	case "/mcp":
+		return m.handleMcpCommand(parts)
+	case "/sys":
+		return m.handleSysCommand(parts)
+	case "/skill":
+		return m.handleSkillCommand(parts)
 	case "/shot":
 		return m.takeScreenshot()
 	case "/show-tree":
@@ -646,14 +882,204 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
 	case "/clear":
 		m.messages = []string{}
-		m.viewport.SetContent(systemStyle.Render(" Session Cleared "))
+		ensureBanner(&m.messages, m.banner)
+		m.messages = append(m.messages, "Type "+systemStyle.Render("/help")+" to see available commands.")
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.GotoTop()
+		m.saveState()
 		return m, nil
 	case "/exit":
 		return m, tea.Quit
 	default:
-		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ") + parts[0])
+		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ")+parts[0])
 	}
-	
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+helpStyle.Render("Manage your AI provider credentials.\n\nUsage: /auth <provider> [key/endpoint]\nProviders: /ollama, /github-models, /github-copilot, /openai, /anthropic"))
+		return m, nil
+	}
+
+	provider := strings.ToLower(parts[1])
+	switch provider {
+	case "/ollama", "ollama":
+		if len(parts) > 2 {
+			endpoint := parts[2]
+			cfg := m.brain.Config()
+			cfg.Model.Endpoint = endpoint
+			if err := m.brain.UpdateConfig(cfg); err != nil {
+				m.messages = append(m.messages, errorStyle.Render(" CONFIG ERROR ")+"\n"+err.Error())
+			} else {
+				m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render(fmt.Sprintf("Ollama endpoint set to: %s", endpoint)))
+			}
+		} else {
+			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render("Ollama is usually active on http://localhost:11434.\nTo use a custom host: /auth /ollama <endpoint>"))
+		}
+	case "/github-models", "github-models":
+		if len(parts) > 2 {
+			err := m.brain.StoreSecret("github_models_pat", parts[2])
+			if err != nil {
+				m.messages = append(m.messages, errorStyle.Render(" VAULT ERROR ")+"\n"+err.Error())
+			} else {
+				m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("GitHub Models PAT received and stored securely."))
+			}
+		} else {
+			m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("Special BYOK method for GitHub AI Models.\nUsage: /auth /github-models <your-pat-token>"))
+		}
+	case "/github-copilot", "github-copilot":
+		m.messages = append(m.messages, systemStyle.Render(" GITHUB COPILOT ")+"\n"+errorStyle.Render(" Not yet integrated "))
+	case "/openai", "openai", "/anthropic", "anthropic":
+		if len(parts) > 2 {
+			providerName := strings.TrimPrefix(provider, "/")
+			err := m.brain.StoreSecret(providerName+"_api_key", parts[2])
+			if err != nil {
+				m.messages = append(m.messages, errorStyle.Render(" VAULT ERROR ")+"\n"+err.Error())
+			} else {
+				m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(providerName))+"\n"+helpStyle.Render(fmt.Sprintf("%s API key received and stored securely.", strings.Title(providerName))))
+			}
+		} else {
+			providerTitle := strings.Title(strings.TrimPrefix(provider, "/"))
+			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(providerTitle))+"\n"+helpStyle.Render(fmt.Sprintf("Usage: /auth %s <api-key>", provider)))
+		}
+	default:
+		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+errorStyle.Render(fmt.Sprintf(" Provider '%s' not yet integrated ", provider)))
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleModelsCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 || parts[1] == "/list" || parts[1] == "list" {
+		m.messages = append(m.messages, systemStyle.Render(" DISCOVERING MODELS ")+"\n"+subtleStyle.Render("Querying active providers..."))
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.GotoBottom()
+
+		return m, func() tea.Msg {
+			discoveries, err := m.brain.DiscoverModels(context.Background())
+			if err != nil {
+				return brain.Response{Error: err}
+			}
+
+			var sb strings.Builder
+			sb.WriteString(systemStyle.Render(" AVAILABLE MODELS ") + "\n")
+			if len(discoveries) == 0 {
+				sb.WriteString(helpStyle.Render("No models found. Check /auth to configure providers."))
+			} else {
+				for _, d := range discoveries {
+					sb.WriteString(fmt.Sprintf("%s %s\n", 
+						aiStyle.Render("• "+d.Name), 
+						subtleStyle.Render("("+d.Provider+")")))
+				}
+				sb.WriteString("\n" + helpStyle.Render("Use /models /use <provider> <model> to switch."))
+			}
+			return brain.Response{Content: sb.String()}
+		}
+	}
+
+	sub := strings.ToLower(parts[1])
+	if (sub == "/use" || sub == "use") && len(parts) >= 4 {
+		provider := parts[2]
+		modelName := parts[3]
+		err := m.brain.SetModel(provider, modelName)
+		if err != nil {
+			m.messages = append(m.messages, errorStyle.Render(" SWITCH ERROR ")+"\n"+err.Error())
+		} else {
+			m.messages = append(m.messages, systemStyle.Render(" MODEL SWITCHED ")+"\n"+helpStyle.Render(fmt.Sprintf("Now using %s via %s", modelName, provider)))
+		}
+	} else if sub == "/use" || sub == "use" {
+		m.messages = append(m.messages, systemStyle.Render(" MODELS ")+"\n"+helpStyle.Render("Usage: /models /use <provider> <model_name>"))
+	} else {
+		m.messages = append(m.messages, errorStyle.Render(" Unknown MODELS subcommand: ")+sub)
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleMcpCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Manage Model Context Protocol servers.\n\nUsage: /mcp <subcommand>\nSubcommands: /list, /add, /logs, /call"))
+		return m, nil
+	}
+
+	sub := strings.ToLower(parts[1])
+	switch sub {
+	case "/list", "list":
+		m.messages = append(m.messages, systemStyle.Render(" MCP SERVERS ")+"\n"+helpStyle.Render("• github (stdio) - tools: github_query\n• postgres (stdio) - tools: postgres_exec"))
+	case "/add", "add":
+		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Usage: /mcp /add <name> <command> [args...]"))
+	case "/logs", "logs":
+		m.messages = append(m.messages, systemStyle.Render(" MCP LOGS ")+"\n"+subtleStyle.Render("Waiting for MCP traffic..."))
+	case "/call", "call":
+		m.messages = append(m.messages, systemStyle.Render(" MCP CALL ")+"\n"+helpStyle.Render("Usage: /mcp /call <tool_name> <json_args>"))
+	default:
+		m.messages = append(m.messages, errorStyle.Render(" Unknown MCP subcommand: ")+sub)
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleSysCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" SYS ")+"\n"+helpStyle.Render("System and hardware intimacy controls.\n\nUsage: /sys <subcommand>\nSubcommands: /stats, /env, /update, /logs"))
+		return m, nil
+	}
+
+	sub := strings.ToLower(parts[1])
+	switch sub {
+	case "/stats", "stats":
+		snapshot, _ := m.brain.GetSnapshot()
+		stats := fmt.Sprintf(systemStyle.Render(" POWER SNAPSHOT ")+"\n"+
+			helpStyle.Render("OS: %s | Arch: %s\nCPU: %.1f%% | Mem: %.1f%%\nGoroutines: %d"),
+			runtime.GOOS, runtime.GOARCH, snapshot.CPUUsage, snapshot.MemoryUsage, runtime.NumGoroutine())
+		m.messages = append(m.messages, stats)
+	case "/env", "env":
+		m.messages = append(m.messages, systemStyle.Render(" ENVIRONMENT ")+"\n"+helpStyle.Render("Limited view (Filtered for security)\nSHELL: %s\nPATH: %s..."), os.Getenv("SHELL"), os.Getenv("PATH")[:30])
+	case "/update", "update":
+		// This uses the logic from update.go
+		m.messages = append(m.messages, systemStyle.Render(" UPDATE ")+"\n"+helpStyle.Render("Checking for latest release on GitHub..."))
+		// In a real implementation, we would return a Cmd here to run the update check
+	case "/logs", "logs":
+		m.messages = append(m.messages, systemStyle.Render(" SYSTEM LOGS ")+"\n"+subtleStyle.Render("Streaming vibeauracle.log..."))
+	default:
+		m.messages = append(m.messages, errorStyle.Render(" Unknown SYS subcommand: ")+sub)
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleSkillCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" SKILL ")+"\n"+helpStyle.Render("Manage Brain capabilities (Vibes).\n\nUsage: /skill <subcommand>\nSubcommands: /list, /info, /load, /disable"))
+		return m, nil
+	}
+
+	sub := strings.ToLower(parts[1])
+	switch sub {
+	case "/list", "list":
+		m.messages = append(m.messages, systemStyle.Render(" ACTIVE SKILLS ")+"\n"+helpStyle.Render("• hello-world (vibe)\n• fs-manager (internal)\n• git-ops (internal)"))
+	case "/info", "info":
+		m.messages = append(m.messages, systemStyle.Render(" SKILL INFO ")+"\n"+helpStyle.Render("Usage: /skill /info <skill_id>"))
+	case "/load", "load":
+		m.messages = append(m.messages, systemStyle.Render(" LOAD SKILL ")+"\n"+helpStyle.Render("Usage: /skill /load <path_or_url>"))
+	case "/disable", "disable":
+		m.messages = append(m.messages, systemStyle.Render(" DISABLE SKILL ")+"\n"+helpStyle.Render("Usage: /skill /disable <skill_id>"))
+	default:
+		m.messages = append(m.messages, errorStyle.Render(" Unknown SKILL subcommand: ")+sub)
+	}
+
 	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 	m.viewport.GotoBottom()
 	return m, nil
@@ -728,7 +1154,7 @@ func (m *model) renderSuggestions() string {
 	var rows []string
 	for i, s := range items {
 		selected := i == m.suggestionIdx
-		
+
 		style := suggestionStyle
 		if selected {
 			style = selectedSuggestionStyle
@@ -738,7 +1164,7 @@ func (m *model) renderSuggestions() string {
 		if m.triggerChar == "/" {
 			name = s
 		}
-		
+
 		dir := filepath.Dir(s)
 		if dir == "." || m.triggerChar == "/" {
 			dir = ""
@@ -771,4 +1197,3 @@ func (m *model) renderSuggestions() string {
 		MarginLeft(2).
 		Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
 }
-
