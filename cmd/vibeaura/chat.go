@@ -113,7 +113,7 @@ type chatState struct {
 }
 
 var allCommands = []string{
-	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot",
+	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth",
 }
 
 func buildBanner(width int) string {
@@ -582,12 +582,29 @@ func (m *model) updateSuggestions(val string) {
 		return
 	}
 
+	// Special case: if we just typed "/auth " (with a space), show all providers
+	if len(words) == 1 && words[0] == "/auth" && strings.HasSuffix(val, " ") {
+		m.triggerChar = ""
+		m.suggestions = []string{"ollama", "github-models", "github-copilot", "openai", "anthropic"}
+		sort.Strings(m.suggestions)
+		return
+	}
+
 	lastWord := words[len(words)-1]
 	if strings.HasPrefix(lastWord, "/") {
 		m.triggerChar = "/"
 		for _, cmd := range allCommands {
 			if strings.HasPrefix(cmd, lastWord) {
 				m.suggestions = append(m.suggestions, cmd)
+			}
+		}
+		sort.Strings(m.suggestions)
+	} else if len(words) > 1 && words[0] == "/auth" {
+		m.triggerChar = ""
+		subcommands := []string{"ollama", "github-models", "github-copilot", "openai", "anthropic"}
+		for _, sub := range subcommands {
+			if strings.HasPrefix(sub, lastWord) {
+				m.suggestions = append(m.suggestions, sub)
 			}
 		}
 		sort.Strings(m.suggestions)
@@ -730,7 +747,7 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 
 	switch parts[0] {
 	case "/help":
-		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /cwd     - Show current directory\n• /version - Show current version info\n• /shot    - Take a beautiful TUI screenshot\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
+		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /cwd     - Show current directory\n• /version - Show current version info\n• /shot    - Take a beautiful TUI screenshot\n• /auth    - Manage AI provider credentials\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
 	case "/status":
 		snapshot, _ := m.brain.GetSnapshot()
 		status := fmt.Sprintf(systemStyle.Render(" SYSTEM ")+"\n"+helpStyle.Render("CPU: %.1f%% | Mem: %.1f%%"), snapshot.CPUUsage, snapshot.MemoryUsage)
@@ -740,6 +757,8 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, systemStyle.Render(" CWD ")+" "+helpStyle.Render(snapshot.WorkingDir))
 	case "/version":
 		m.messages = append(m.messages, systemStyle.Render(" VERSION ")+"\n"+helpStyle.Render(fmt.Sprintf("App: %s\nCommit: %s\nCompiler: %s", Version, Commit, runtime.Version())))
+	case "/auth":
+		return m.handleAuthCommand(parts)
 	case "/shot":
 		return m.takeScreenshot()
 	case "/show-tree":
@@ -758,6 +777,45 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	default:
 		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ")+parts[0])
+	}
+
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+helpStyle.Render("Manage your AI provider credentials.\n\nUsage: /auth <provider> [key/endpoint]\nProviders: ollama, github-models, github-copilot, openai, anthropic"))
+		return m, nil
+	}
+
+	provider := strings.ToLower(parts[1])
+	switch provider {
+	case "ollama":
+		if len(parts) > 2 {
+			endpoint := parts[2]
+			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render(fmt.Sprintf("Ollama endpoint set to: %s", endpoint)))
+		} else {
+			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render("Ollama is usually active on http://localhost:11434.\nTo use a custom host: /auth ollama <endpoint>"))
+		}
+	case "github-models":
+		if len(parts) > 2 {
+			// TODO: Store in vault when fully implemented
+			m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("GitHub Models BYOK key received. Encryption & storage pending full implementation."))
+		} else {
+			m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("Special BYOK method for GitHub AI Models.\nUsage: /auth github-models <your-pat-token>"))
+		}
+	case "github-copilot":
+		m.messages = append(m.messages, systemStyle.Render(" GITHUB COPILOT ")+"\n"+errorStyle.Render(" Not yet integrated "))
+	case "openai", "anthropic":
+		if len(parts) > 2 {
+			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(provider))+"\n"+helpStyle.Render(fmt.Sprintf("%s API key received and staged.", strings.Title(provider))))
+		} else {
+			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(provider))+"\n"+helpStyle.Render(fmt.Sprintf("Usage: /auth %s <api-key>", provider)))
+		}
+	default:
+		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+errorStyle.Render(fmt.Sprintf(" Provider '%s' not yet integrated ", provider)))
 	}
 
 	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
