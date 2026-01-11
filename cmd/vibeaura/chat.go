@@ -1,76 +1,151 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 	"github.com/nathfavour/vibeauracle/brain"
 )
 
 type model struct {
-	choices  []string
-	cursor   int
-	selected map[int]struct{}
-	brain    *brain.Brain
+	viewport    viewport.Model
+	messages    []string
+	textarea    textarea.Model
+	err         error
+	brain       *brain.Brain
+	width       int
+	height      int
 }
 
 func initialModel(b *brain.Brain) model {
+	ta := textarea.New()
+	ta.Placeholder = "Send a message or type / for commands..."
+	ta.Focus()
+
+	ta.Prompt = "┃ "
+	ta.CharLimit = 1000
+
+	ta.SetWidth(60)
+	ta.SetHeight(3)
+
+	// Remove cursor line styling
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.ShowLineNumbers = false
+
+	vp := viewport.New(60, 15)
+	vp.SetContent(`Welcome to vibeauracle.
+The Alpha & Omega of AI Engineering.
+type /help for commands.`)
+
 	return model{
-		choices:  []string{"Chat with AI", "System Status", "Task Log", "Settings"},
-		selected: make(map[int]struct{}),
+		textarea: ta,
+		viewport: vp,
+		messages: []string{},
 		brain:    b,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return textarea.Blink
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		tiCmd tea.Cmd
+		vpCmd tea.Cmd
+	)
+
+	m.textarea, tiCmd = m.textarea.Update(msg)
+	m.viewport, vpCmd = m.viewport.Update(msg)
+
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.viewport.Width = msg.Width
+		m.textarea.SetWidth(msg.Width)
+		m.viewport.Height = msg.Height - m.textarea.Height() - 5
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c", "esc":
 			return m, tea.Quit
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+		case "enter":
+			v := m.textarea.Value()
+			if v == "" {
+				return m, nil
 			}
-		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
-				m.cursor++
+
+			// Handle slash commands
+			if strings.HasPrefix(v, "/") {
+				return m.handleSlashCommand(v)
 			}
-		case "enter", " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
+
+			// Add user message via a response update
+			m.messages = append(m.messages, fmt.Sprintf("You: %s", v))
+			m.textarea.Reset()
+			m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+			m.viewport.GotoBottom()
+
+			// Process via brain
+			return m, m.processRequest(v)
+
 		}
+	case brain.Response:
+		if msg.Error != nil {
+			m.messages = append(m.messages, fmt.Sprintf("Error: %v", msg.Error))
+		} else {
+			m.messages = append(m.messages, fmt.Sprintf("AI: %s", msg.Content))
+		}
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.GotoBottom()
 	}
+
+	return m, tea.Batch(tiCmd, vpCmd)
+}
+
+func (m model) processRequest(content string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		req := brain.Request{
+			ID:      uuid.NewString(),
+			Content: content,
+		}
+		resp, _ := m.brain.Process(ctx, req)
+		return resp
+	}
+}
+
+func (m model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
+	parts := strings.Fields(cmd)
+	switch parts[0] {
+	case "/help":
+		m.messages = append(m.messages, "Available commands:\n/help - Show this\n/clear - Clear chat\n/exit - Quit")
+	case "/clear":
+		m.messages = []string{}
+		m.viewport.SetContent("Chat cleared.")
+	case "/exit":
+		return m, tea.Quit
+	default:
+		m.messages = append(m.messages, fmt.Sprintf("Unknown command: %s", parts[0]))
+	}
+	m.textarea.Reset()
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
 	return m, nil
 }
 
 func (m model) View() string {
-	s := "vibeauracle - The Alpha & Omega\n\n"
-
-	for i, choice := range m.choices {
-		cursor := " "
-		if m.cursor == i {
-			cursor = ">"
-		}
-
-		checked := " "
-		if _, ok := m.selected[i]; ok {
-			checked = "x"
-		}
-
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
-	}
-
-	s += "\nPress q to quit.\n"
-
-	return s
+	return fmt.Sprintf(
+		"%s\n\n%s\n\n%s",
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")).Render("vibeauracle"),
+		m.viewport.View(),
+		m.textarea.View(),
+	) + "\n\n"
 }
 
