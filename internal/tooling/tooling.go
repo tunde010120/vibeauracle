@@ -19,21 +19,27 @@ type Tool interface {
 type ToolCategory string
 
 const (
-	CategoryFileSystem ToolCategory = "filesystem"
-	CategoryAnalysis   ToolCategory = "analysis"
-	CategorySystem     ToolCategory = "system"
-	CategoryNetwork    ToolCategory = "network"
-	CategoryCoding     ToolCategory = "coding"
+	CategoryFileSystem ToolCategory = "filesystem" // CRUD operations on files
+	CategoryAnalysis   ToolCategory = "analysis"   // Static analysis, linting, reading
+	CategorySystem     ToolCategory = "system"     // OS-level interaction (shell, env)
+	CategoryNetwork    ToolCategory = "network"    // HTTP, P2P, Sockets
+	CategoryCoding     ToolCategory = "coding"     // AST manipulation, refactoring
+	CategorySecurity   ToolCategory = "security"   // Keys, encryption, permissions
+	CategoryMemory     ToolCategory = "memory"     // RAG, Vector Search, Recall
+	CategoryDevOps     ToolCategory = "devops"     // Docker, Git, CI/CD
 )
 
 // AgentRole defines the persona/stage for which this tool is relevant.
 type AgentRole string
 
 const (
-	RoleArchitect AgentRole = "architect" // High-level planning, discovery
-	RoleEngineer  AgentRole = "engineer"  // Implementation, debugging, shell
-	RoleCoder     AgentRole = "coder"     // File editing, syntax fixing
-	RoleAll       AgentRole = "*"
+	RoleArchitect       AgentRole = "architect"        // High-level planning, discovery
+	RoleEngineer        AgentRole = "engineer"         // Implementation, debugging, scripting
+	RoleCoder           AgentRole = "coder"            // Low-level file editing, syntax fixing
+	RoleSecurityOfficer AgentRole = "security_officer" // Auditing, sensitive file access
+	RoleQA              AgentRole = "qa"               // Testing, validation, linting
+	RoleResearcher      AgentRole = "researcher"       // Web search, doc reading
+	RoleAll             AgentRole = "*"                // Universal access
 )
 
 // ToolMetadata holds detailed information about a tool for agentic reasoning.

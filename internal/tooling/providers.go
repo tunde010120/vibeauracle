@@ -24,8 +24,11 @@ func (p *SystemProvider) Provide(ctx context.Context) ([]Tool, error) {
 		NewReadFileTool(p.fs),
 		NewWriteFileTool(p.fs),
 		NewListFilesTool(p.fs),
+		NewListDirTool(p.fs),
+		NewFileStatsTool(p.fs),
 		NewTraversalTool(p.fs),
 		&ShellExecTool{},
+		&GrepTool{},
 		NewSystemInfoTool(p.monitor),
 		&FetchURLTool{},
 	}
