@@ -188,8 +188,8 @@ func checkUpdateSilent() {
 			styleChannel.Render(channel),
 			styleNew.Render("channel!"),
 		)
-		fmt.Printf("   %s %s %s %s\n",
-			styleDim.Render("Latest:"), displayLatestSHA,
+		fmt.Printf("   %s %s (%s) %s %s\n",
+			styleDim.Render("Latest:"), displayLatestSHA, latestTag,
 			styleDim.Render("Current:"), displayCurCommit,
 		)
 		fmt.Printf("   👉 Run %s %s\n",
