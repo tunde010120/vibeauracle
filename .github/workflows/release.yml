@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - release
-      - master
     tags:
       - 'v*'
 
@@ -58,8 +57,6 @@ jobs:
             VERSION="${{ github.ref_name }}"
           elif [[ "${{ github.ref_name }}" == "release" ]]; then
             VERSION="latest"
-          elif [[ "${{ github.ref_name }}" == "master" ]]; then
-            VERSION="beta"
           else
             VERSION="dev"
           fi
@@ -85,11 +82,11 @@ jobs:
           echo "{\"version\": \"$VERSION\", \"commit\": \"$COMMIT\", \"date\": \"$BUILD_DATE\"}" > dist/metadata.json
 
       - name: Update rolling tags
-        if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME=${{ github.ref_name == 'release' && 'latest' || 'beta' }}
+          TAG_NAME='latest'
           echo "Updating rolling tag: $TAG_NAME to ${{ github.sha }}"
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
           git tag -f "$TAG_NAME" ${{ github.sha }}
@@ -97,11 +94,11 @@ jobs:
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/release' || github.ref == 'refs/heads/master'
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/release'
         with:
           files: dist/*
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || (github.ref_name == 'release' && 'latest' || 'beta') }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || (github.ref_name == 'release' && 'Latest Stable' || 'Beta Bleeding Edge') }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Latest Stable' }}
           generate_release_notes: true
           draft: false
           prerelease: ${{ github.ref_type != 'tag' }}

@@ -679,7 +679,8 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 }
 
 var (
-	betaFlag bool
+	betaFlag       bool
+	listAssetsFlag bool
 )
 
 var updateCmd = &cobra.Command{
@@ -698,6 +699,29 @@ var updateCmd = &cobra.Command{
 		useBeta := betaFlag || cfg.Update.Beta
 		buildFromSource := cfg.Update.BuildFromSource || useBeta
 		verbose := cfg.Update.Verbose
+
+		if listAssetsFlag {
+			if buildFromSource {
+				return fmt.Errorf("--list-assets is only supported for the pre-built update pipeline (source updates do not use assets)")
+			}
+
+			fmt.Println("Fetching latest release assets...")
+			reqChannel := ""
+			if useBeta {
+				reqChannel = "beta"
+			}
+			latest, err := getLatestRelease(reqChannel)
+			if err != nil {
+				return fmt.Errorf("checking for updates: %w", err)
+			}
+
+			fmt.Printf("\n📦 Assets for release %s:\n", latest.TagName)
+			for _, asset := range latest.Assets {
+				fmt.Printf("  - %s\n", asset.Name)
+			}
+			fmt.Println()
+			return nil
+		}
 
 		curCommit := Commit
 		if len(curCommit) > 7 {
@@ -839,5 +863,6 @@ var updateCmd = &cobra.Command{
 
 func init() {
 	updateCmd.Flags().BoolVar(&betaFlag, "beta", false, "Install bleeding-edge version from source (master branch)")
+	updateCmd.Flags().BoolVar(&listAssetsFlag, "list-assets", false, "List all assets available in the latest release")
 	rootCmd.AddCommand(updateCmd)
 }
