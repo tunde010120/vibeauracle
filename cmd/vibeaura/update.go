@@ -471,59 +471,76 @@ func installBinary(srcPath, dstPath string) error {
 	if verbose {
 		fmt.Printf("Installing binary to %s...\n", dstPath)
 	}
-	
+
 	// Ensure the new binary is executable
 	if err := os.Chmod(srcPath, 0755); err != nil {
 		// Might fail on some filesystems, ignore
 	}
 
-	// Try moving/renaming first (best for updates in-place)
-	if err := os.Rename(srcPath, dstPath); err != nil {
-		if runtime.GOOS == "windows" {
-			return fmt.Errorf("could not replace running binary on Windows. Please download and install manually.")
-		}
+	// To avoid "Text file busy" errors on Linux/Unix, it's best to remove/unlink the destination first.
+	// We'll try a variety of methods.
 
-		goos, _ := getPlatform()
-		if goos == "android" {
-			// On Termux, sudo is missing. Try a direct copy.
-			cpCmd := exec.Command("cp", srcPath, dstPath)
-			if err := cpCmd.Run(); err != nil {
-				return fmt.Errorf("replacing binary on Android: %w", err)
-			}
-			return nil
-		}
+	// 1. Try a direct rename (best if same filesystem and not busy)
+	if err := os.Rename(srcPath, dstPath); err == nil {
+		os.Chmod(dstPath, 0755)
+		return nil
+	}
 
-		// Elevation required or cross-device mount
-		if verbose {
-			fmt.Printf("Permission denied. Trying with sudo to install to %s...\n", dstPath)
-		} else {
+	// 2. Try removing the destination first to break any existing file handles
+	if err := os.Remove(dstPath); err != nil {
+		// If remove fails, it might be due to permissions
+	}
+
+	// 3. Fallback to platform-specific copy mechanisms
+	goos, _ := getPlatform()
+	if goos == "android" {
+		// On Termux, sudo is missing. Try a direct copy.
+		cpCmd := exec.Command("cp", srcPath, dstPath)
+		if err := cpCmd.Run(); err != nil {
+			return fmt.Errorf("replacing binary on Android: %w", err)
+		}
+		os.Chmod(dstPath, 0755)
+		return nil
+	}
+
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("could not replace running binary on Windows. Please download and install manually.")
+	}
+
+	// Linux/Darwin: Elevation may be required
+	if verbose {
+		fmt.Printf("Permission denied or busy. Trying with sudo to install to %s...\n", dstPath)
+	} else if _, err := os.Stat(dstPath); err == nil {
+		// If dest exists, check if we have write access, otherwise mention elevation
+		f, err := os.OpenFile(dstPath, os.O_WRONLY, 0)
+		if err != nil {
 			fmt.Print("🔒  Elevating for installation... ")
-		}
-		
-		// Use 'cp' for cross-device or 'mv'? 'cp' is safer if we want to preserve source (though here src is temp)
-		sudoCmd := exec.Command("sudo", "cp", srcPath, dstPath)
-		sudoCmd.Stdout = os.Stdout
-		sudoCmd.Stderr = os.Stderr
-		sudoCmd.Stdin = os.Stdin
-		
-		if err := sudoCmd.Run(); err != nil {
-			if !verbose {
-				fmt.Println("FAILED")
-			}
-			return fmt.Errorf("replacing binary with sudo: %w", err)
-		}
-		
-		// Ensure it's executable
-		exec.Command("sudo", "chmod", "+x", dstPath).Run()
-		
-		if !verbose {
-			fmt.Println("DONE")
+		} else {
+			f.Close()
 		}
 	}
 
-	// Final chmod check for non-elevated moves
-	if runtime.GOOS != "windows" {
-		os.Chmod(dstPath, 0755)
+	// Remove target with sudo first to handle ETXTBSY
+	exec.Command("sudo", "rm", "-f", dstPath).Run()
+
+	// Copy using sudo
+	sudoCmd := exec.Command("sudo", "cp", srcPath, dstPath)
+	sudoCmd.Stdout = os.Stdout
+	sudoCmd.Stderr = os.Stderr
+	sudoCmd.Stdin = os.Stdin
+
+	if err := sudoCmd.Run(); err != nil {
+		if !verbose {
+			fmt.Println("FAILED")
+		}
+		return fmt.Errorf("replacing binary with sudo: %w", err)
+	}
+
+	// Ensure it's executable
+	exec.Command("sudo", "chmod", "+x", dstPath).Run()
+
+	if !verbose {
+		fmt.Println("DONE")
 	}
 
 	return nil
@@ -544,7 +561,14 @@ func restartWithArgs(args []string) {
 	}
 
 	exe, err := os.Executable()
-	if err != nil {
+	if err == nil {
+		// Try to use the standard go bin path if it exists to be safe
+		home, _ := os.UserHomeDir()
+		goBinPath := filepath.Join(home, "go", "bin", "vibeaura")
+		if _, statErr := os.Stat(goBinPath); statErr == nil {
+			exe = goBinPath
+		}
+	} else {
 		fmt.Printf("Error getting executable path for restart: %v\n", err)
 		os.Exit(1)
 	}
@@ -557,13 +581,16 @@ func restartWithArgs(args []string) {
 	}
 }
 
-// ensureInstalled checks if the binary is running from a standard system path.
-// If it isn't, it performs an automatic installation to the appropriate location.
+// ensureInstalled checks if the binary is running from the universal system path (~/go/bin).
+// If it isn't, it performs an automatic installation To that location, adds it to the PATH,
+// and removes any conflicting binaries from other system directories.
 func ensureInstalled() {
 	// Skip for dev builds to avoid disrupting local development
+	/*
 	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
 		return
 	}
+	*/
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -571,93 +598,156 @@ func ensureInstalled() {
 	}
 
 	// Follow symlinks to get the real path
-	realPath, err := filepath.EvalSymlinks(exe)
+	realExe, err := filepath.EvalSymlinks(exe)
 	if err != nil {
-		realPath = exe
+		realExe = exe
 	}
 
-	goos, _ := getPlatform()
+	home, _ := os.UserHomeDir()
+	goBin := filepath.Join(home, "go", "bin")
 	
-	// Define standard search/install directories
-	var standardDirs []string
-	var targetDir string
-
+	goos, _ := getPlatform()
 	if goos == "android" {
 		prefix := os.Getenv("PREFIX")
-		if prefix == "" {
-			prefix = "/data/data/com.termux/files/usr"
+		if prefix != "" {
+			goBin = filepath.Join(prefix, "bin")
 		}
-		standardDirs = []string{filepath.Join(prefix, "bin")}
-		targetDir = standardDirs[0]
-	} else if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		home, _ := os.UserHomeDir()
-		standardDirs = []string{
-			"/usr/local/bin",
-			"/usr/bin",
-			"/bin",
-			filepath.Join(home, ".local/bin"),
-			filepath.Join(home, "bin"),
+	}
+
+	targetPath := filepath.Join(goBin, "vibeaura")
+	if runtime.GOOS == "windows" {
+		targetPath += ".exe"
+	}
+
+	needsHandoff := false
+
+	// 1. If we are NOT running from the target path, we need to move there
+	if realExe != targetPath {
+		fmt.Printf("🏠  %s migrating to universal path (%s)...\n",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Render("vibeaura"),
+			targetPath,
+		)
+		
+		if err := os.MkdirAll(goBin, 0755); err != nil {
+			// ignore
 		}
 
-		// Add Go standard binary paths to avoid flagging 'go install' locations
-		if gobin := os.Getenv("GOBIN"); gobin != "" {
-			standardDirs = append(standardDirs, gobin)
+		if err := installBinary(realExe, targetPath); err != nil {
+			fmt.Printf("❌  Failed to install to universal path: %v\n", err)
+			// Don't exit here, still try to cleanup other paths maybe?
+		} else {
+			needsHandoff = true
 		}
-		if gopath := os.Getenv("GOPATH"); gopath != "" {
-			standardDirs = append(standardDirs, filepath.Join(gopath, "bin"))
-		}
-		standardDirs = append(standardDirs, filepath.Join(home, "go", "bin"))
+	}
 
-		// Prefer /usr/local/bin for global install, fallback to home-local
-		targetDir = "/usr/local/bin"
-		if _, err := os.Stat(targetDir); err != nil {
-			targetDir = filepath.Join(home, ".local/bin")
+	// 2. Ensure goBin is in system PATH (shell profiles)
+	ensureGoBinInPath(goBin)
+
+	// 3. Remove conflicting binaries from other paths
+	locations := getAllBinaryLocations()
+	for _, loc := range locations {
+		if loc != targetPath {
+			// Only remove if it's actually different from our target
+			removeBinary(loc)
 		}
-	} else {
-		// For Windows or other OS, we rely on the manual installation for now
+	}
+
+	// 4. If we migrated, hand off to the new process immediately
+	if needsHandoff {
+		styleSuccess := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+		fmt.Println(styleSuccess.Render("✅  Universal environment setup complete."))
+		restartWithArgs(os.Args)
+	}
+}
+
+func getAllBinaryLocations() []string {
+	var locations []string
+	
+	// Try 'which -a' for system-wide lookup
+	cmd := exec.Command("which", "-a", "vibeaura")
+	out, _ := cmd.Output()
+	for _, line := range strings.Split(string(out), "\n") {
+		path := strings.TrimSpace(line)
+		if path != "" {
+			if abs, err := filepath.Abs(path); err == nil {
+				locations = append(locations, abs)
+			}
+		}
+	}
+	
+	// Manual check for common locations in case 'which' is limited
+	home, _ := os.UserHomeDir()
+	standards := []string{
+		"/usr/local/bin/vibeaura",
+		"/usr/bin/vibeaura",
+		"/bin/vibeaura",
+		filepath.Join(home, ".local/bin/vibeaura"),
+		filepath.Join(home, "bin/vibeaura"),
+	}
+
+	for _, s := range standards {
+		if _, err := os.Stat(s); err == nil {
+			if abs, err := filepath.Abs(s); err == nil {
+				found := false
+				for _, loc := range locations {
+					if loc == abs {
+						found = true
+						break
+					}
+				}
+				if !found {
+					locations = append(locations, abs)
+				}
+			}
+		}
+	}
+	return locations
+}
+
+func removeBinary(path string) {
+	// Try regular removal
+	err := os.Remove(path)
+	if err != nil {
+		// Fallback to sudo rm for system paths
+		exec.Command("sudo", "rm", "-f", path).Run()
+	}
+}
+
+func ensureGoBinInPath(goBin string) {
+	pathEnv := os.Getenv("PATH")
+	if strings.Contains(pathEnv, goBin) {
 		return
 	}
 
-	isStandard := false
-	for _, dir := range standardDirs {
-		// Check if the realPath starts with the standard directory
-		if strings.HasPrefix(realPath, dir) {
-			isStandard = true
-			break
+	home, _ := os.UserHomeDir()
+	
+	// Create common shell variable for standard Go Bin relative to home
+	tildaPath := "~/go/bin"
+	if !strings.Contains(goBin, filepath.Join(home, "go", "bin")) {
+		tildaPath = goBin // Fallback for custom layouts or Termux
+	}
+
+	// We'll update both common shell profiles
+	configs := []string{".zshrc", ".bashrc", ".profile"}
+	
+	updated := false
+	for _, conf := range configs {
+		confPath := filepath.Join(home, conf)
+		if _, err := os.Stat(confPath); err == nil {
+			content, _ := os.ReadFile(confPath)
+			if !strings.Contains(string(content), "vibeaura") && !strings.Contains(string(content), goBin) {
+				f, err := os.OpenFile(confPath, os.O_APPEND|os.O_WRONLY, 0644)
+				if err == nil {
+					f.WriteString(fmt.Sprintf("\n# vibeaura universal path\nexport PATH=\"$PATH:%s\"\n", tildaPath))
+					f.Close()
+					updated = true
+				}
+			}
 		}
 	}
 
-	if !isStandard {
-		fmt.Printf("🏠  %s detected an unofficial installation path (%s).\n", 
-			lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Render("vibeaura"),
-			filepath.Dir(realPath),
-		)
-		fmt.Printf("📦  Automatically setting up standard environment in %s...\n", targetDir)
-
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
-			// If we can't create it, we'll try to let installBinary handle elevation if needed
-		}
-
-		targetPath := filepath.Join(targetDir, "vibeaura")
-		
-		// If the target already exists and is the same as the source, we're done
-		if sameFile(realPath, targetPath) {
-			return
-		}
-
-		// Use the existing installBinary logic to copy/elevate
-		if err := installBinary(realPath, targetPath); err != nil {
-			fmt.Printf("❌  Automatic installation failed: %v\n", err)
-			fmt.Printf("👉  Please try running: sudo mv %s %s\n", realPath, targetPath)
-			return
-		}
-
-		styleSuccess := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-		fmt.Println()
-		fmt.Println(styleSuccess.Render("✅  Setup complete!"))
-		fmt.Printf("🚀  Please run %s from your terminal now.\n", lipgloss.NewStyle().Bold(true).Render("vibeaura"))
-		fmt.Println()
-		os.Exit(0)
+	if updated {
+		fmt.Printf("📝 Added %s to path in shell profiles. Please restart your terminal.\n", tildaPath)
 	}
 }
 
