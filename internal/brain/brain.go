@@ -125,3 +125,8 @@ User Request (Thread ID: %s):
 	}, nil
 }
 
+// GetSnapshot returns a current snapshot of system resources via the monitor
+func (b *Brain) GetSnapshot() (sys.Snapshot, error) {
+	return b.monitor.GetSnapshot()
+}
+
