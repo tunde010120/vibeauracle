@@ -598,6 +598,16 @@ func ensureInstalled() {
 			filepath.Join(home, ".local/bin"),
 			filepath.Join(home, "bin"),
 		}
+
+		// Add Go standard binary paths to avoid flagging 'go install' locations
+		if gobin := os.Getenv("GOBIN"); gobin != "" {
+			standardDirs = append(standardDirs, gobin)
+		}
+		if gopath := os.Getenv("GOPATH"); gopath != "" {
+			standardDirs = append(standardDirs, filepath.Join(gopath, "bin"))
+		}
+		standardDirs = append(standardDirs, filepath.Join(home, "go", "bin"))
+
 		// Prefer /usr/local/bin for global install, fallback to home-local
 		targetDir = "/usr/local/bin"
 		if _, err := os.Stat(targetDir); err != nil {
