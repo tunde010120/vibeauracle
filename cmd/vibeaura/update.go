@@ -101,11 +101,94 @@ func fetchWithFallback(url string) ([]byte, error) {
 	return nil, err // Return original Go error if curl also fails or is missing
 }
 
+// gitLSDiscovery attempts to find tags or branch SHAs using 'git ls-remote'
+// to avoid GitHub API rate limits (which often lead to 403 Forbidden).
+func gitLSDiscovery(refType string) (map[string]string, error) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("git", "ls-remote", "--"+refType, "https://github.com/"+repo+".git")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	results := make(map[string]string)
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			sha := parts[0]
+			ref := parts[1]
+			
+			// refs/tags/v1.0.0 -> v1.0.0
+			// refs/heads/master -> master
+			refName := filepath.Base(ref)
+			results[refName] = sha
+		}
+	}
+	return results, nil
+}
+
 func getLatestRelease(channel string) (*releaseInfo, error) {
+	// Priority High: Try git ls-remote to find the tag name first. 
+	// This is very resilient to rate limits.
+	discoveredTags, _ := gitLSDiscovery("tags")
+	if discoveredTags != nil {
+		var bestTag string
+		// Search for 'latest' rolling tag or newest semver
+		if channel == "" || channel == "stable" {
+			if _, ok := discoveredTags["latest"]; ok {
+				bestTag = "latest"
+			} else {
+				// Find highest semver
+				for tag := range discoveredTags {
+					vTag := tag
+					if !strings.HasPrefix(vTag, "v") {
+						vTag = "v" + vTag
+					}
+					if semver.IsValid(vTag) && semver.Prerelease(vTag) == "" {
+						if bestTag == "" || semver.Compare(vTag, "v"+strings.TrimPrefix(bestTag, "v")) > 0 {
+							bestTag = tag
+						}
+					}
+				}
+			}
+		} else if channel != "" {
+			if _, ok := discoveredTags[channel]; ok {
+				bestTag = channel
+			}
+		}
+
+		if bestTag != "" {
+			// Now that we have a tag, we STILL want the full release info for assets
+			// but we can target the specific tag which is less likely to hit global 403s 
+			// compared to /releases/latest.
+			data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, bestTag))
+			if err == nil {
+				var latest releaseInfo
+				if err := json.Unmarshal(data, &latest); err == nil && latest.TagName != "" {
+					populateActualSHA(&latest)
+					return &latest, nil
+				}
+			}
+			
+			// If API still fails, we can synthesize a releaseInfo if we really want to,
+			// but let's see if we can just return it.
+			synthesized := &releaseInfo{
+				TagName:   bestTag,
+				ActualSHA: discoveredTags[bestTag],
+			}
+			// Note: Assets will be empty, performBinaryUpdate will need to handle this.
+			return synthesized, nil
+		}
+	}
+
 	var data []byte
 	var err error
 
-	// If no specific channel is requested, use the standard GitHub 'latest' endpoint
+	// Fallback Strategy: Original API-based discovery
 	if channel == "" {
 		data, err = fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
 		if err == nil {
@@ -197,6 +280,11 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 }
 
 func populateActualSHA(latest *releaseInfo) {
+	// If it already has one from gitLSDiscovery, we're good
+	if latest.ActualSHA != "" {
+		return
+	}
+
 	// Try to fetch metadata.json from assets for precise versioning
 	for _, asset := range latest.Assets {
 		if asset.Name == "metadata.json" {
@@ -211,7 +299,16 @@ func populateActualSHA(latest *releaseInfo) {
 		}
 	}
 
-	// Fallback to tag-based SHA resolution if metadata.json is missing
+	// Fallback to git ls-remote for tag-based SHA resolution (bypasses API)
+	discovered, err := gitLSDiscovery("tags")
+	if err == nil {
+		if sha, ok := discovered[latest.TagName]; ok {
+			latest.ActualSHA = sha
+			return
+		}
+	}
+
+	// Last resort: GitHub API
 	tagData, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/git/ref/tags/%s", repo, latest.TagName))
 	if err == nil {
 		var tagInfo struct {
@@ -267,6 +364,14 @@ func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 }
 
 func getBranchCommitSHA(branch string) (string, error) {
+	// Try git ls-remote first
+	discovered, err := gitLSDiscovery("heads")
+	if err == nil {
+		if sha, ok := discovered[branch]; ok {
+			return sha, nil
+		}
+	}
+
 	data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, branch))
 	if err != nil {
 		return "", err
@@ -433,6 +538,11 @@ func performBinaryUpdate(latest *releaseInfo) error {
 			downloadURL = asset.BrowserDownloadURL
 			break
 		}
+	}
+
+	// Fallback for synthesized releaseInfo (from git ls-remote) where assets are not populated
+	if downloadURL == "" && latest.TagName != "" {
+		downloadURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, latest.TagName, targetAsset)
 	}
 
 	if downloadURL == "" {
@@ -1185,6 +1295,11 @@ var updateCmd = &cobra.Command{
 				downloadURL = asset.BrowserDownloadURL
 				break
 			}
+		}
+
+		// Fallback for synthesized releaseInfo (from git ls-remote) where assets are not populated
+		if downloadURL == "" && latest.TagName != "" {
+			downloadURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, latest.TagName, targetAsset)
 		}
 
 		if downloadURL == "" {
