@@ -907,6 +907,13 @@ var updateCmd = &cobra.Command{
 				return nil
 			}
 
+			// Re-enable auto-update if it was disabled (e.g. after a rollback)
+			if !cfg.Update.AutoUpdate {
+				cfg.Update.AutoUpdate = true
+				cm.Save(cfg)
+				fmt.Println("🔄  Automatic updates re-enabled.")
+			}
+
 			if !verbose {
 				fmt.Println("DONE")
 			} else {
@@ -1001,6 +1008,13 @@ var updateCmd = &cobra.Command{
 		exePath, _ := os.Executable()
 		if err := installBinary(tmpFile.Name(), exePath); err != nil {
 			return err
+		}
+
+		// Re-enable auto-update if it was disabled (e.g. after a rollback)
+		if !cfg.Update.AutoUpdate {
+			cfg.Update.AutoUpdate = true
+			cm.Save(cfg)
+			fmt.Println("🔄  Automatic updates re-enabled.")
 		}
 
 		if verbose {

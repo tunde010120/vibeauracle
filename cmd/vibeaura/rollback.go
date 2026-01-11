@@ -88,6 +88,14 @@ func rollbackBinary(target string) error {
 		return err
 	}
 
+	// Disable auto-update after rollback
+	cm, _ := sys.NewConfigManager()
+	if cfg, err := cm.Load(); err == nil {
+		cfg.Update.AutoUpdate = false
+		cm.Save(cfg)
+		fmt.Println("ℹ️  Automatic updates disabled. Run 'vibeaura update' manually to re-enable.")
+	}
+
 	fmt.Println("DONE")
 	restartSelf()
 	return nil
@@ -130,6 +138,11 @@ func rollbackFromSource(target string, cm *sys.ConfigManager) error {
 		fmt.Println("Already at requested version.")
 		return nil
 	}
+
+	// Disable auto-update after rollback
+	cfg.Update.AutoUpdate = false
+	cm.Save(cfg)
+	fmt.Println("ℹ️  Automatic updates disabled. Run 'vibeaura update' manually to re-enable.")
 
 	fmt.Println("DONE")
 	restartSelf()
