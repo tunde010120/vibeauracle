@@ -253,6 +253,7 @@ func checkUpdateSilent() {
 	var latestSHA string
 	var latestTag string
 	var channel string
+	var latest *releaseInfo
 
 	if useBeta && !buildFromSource {
 		latest, err = getLatestRelease("beta")
