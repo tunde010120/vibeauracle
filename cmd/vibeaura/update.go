@@ -369,6 +369,15 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 			return nil
 		}
 
+		// Check if this commit previously failed
+		cfg, _ := cm.Load()
+		for _, failed := range cfg.Update.FailedCommits {
+			if failed == remoteSHA {
+				fmt.Printf("⚠️ Skipping build for known-failed commit %s on %s branch.\n", remoteSHA[:7], branch)
+				return nil
+			}
+		}
+
 		fmt.Printf("Updating local source in %s...\n", sourceRoot)
 		pullCmd := exec.Command("git", "-C", sourceRoot, "pull", "origin", branch)
 		pullCmd.Stdout = os.Stdout
