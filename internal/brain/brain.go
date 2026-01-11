@@ -2,6 +2,7 @@ package brain
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -209,6 +210,11 @@ func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 	var recs []prompt.Recommendation
 	var promptIntent prompt.Intent
 
+	// 5. Prompt System: classify + layer instructions + inject recall + build final prompt
+	augmentedPrompt := ""
+	var recs []prompt.Recommendation
+	var promptIntent prompt.Intent
+
 	if b.config.Prompt.Enabled && b.prompts != nil {
 		env, builtRecs, err := b.prompts.Build(ctx, req.Content, snapshot, toolDefs)
 		if err != nil {
@@ -221,8 +227,7 @@ func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 		recs = builtRecs
 		promptIntent = env.Intent
 	} else {
-		// Fallback to prior behavior with Enhanced Context Window
-		// Recall now triggers the tiered window search
+		// Fallback...
 		snippets, _ := b.memory.Recall(req.Content)
 		contextStr := strings.Join(snippets, "\n")
 
@@ -230,50 +235,102 @@ func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 %s
 
 System CWD: %s
-Available Tools:
+Available Tools (JSON-RPC 2.0 Style):
 %s
 
 User Request (Thread ID: %s):
 %s`, contextStr, snapshot.WorkingDir, toolDefs, req.ID, req.Content)
 	}
 
-	// Pre-execution Security Check (Simplified for example)
-	if strings.Contains(req.Content, ".env") {
-		if err := b.security.CheckPath(".env"); err != nil {
-			return Response{Content: fmt.Sprintf("Security Alert: %v. You must explicitly enable sensitive file access.", err)}, nil
+	// EXECUTION LOOP (Agentic)
+	// We allow up to 5 turns of "Thought -> Action -> Observation"
+	maxTurns := 5
+	history := augmentedPrompt
+
+	for i := 0; i < maxTurns; i++ {
+		// 1. Generate
+		resp, err := b.model.Generate(ctx, history)
+		if err != nil {
+			return Response{}, fmt.Errorf("generating response: %w", err)
 		}
+
+		// 2. Parse & Execute Tools
+		// We look for valid JSON tool calls in the response
+		executed, resultVal, interventionErr, execErr := b.executeToolCalls(ctx, resp)
+
+		// Bubble up intervention immediately so UI can handle it
+		if interventionErr != nil {
+			return Response{}, interventionErr
+		}
+
+		if !executed {
+			// No tool calls? We are done.
+			return Response{Content: resp}, nil
+		}
+
+		// 3. Observation (feed back into history)
+		if execErr != nil {
+			history += fmt.Sprintf("\n\nUser: Tool Execution Failed: %v\nSystem:", execErr)
+		} else {
+			history += fmt.Sprintf("\n\nUser: Tool Output: %s\nSystem:", resultVal)
+		}
+
+		// Loop continues to let the AI reflect on the output
 	}
 
-	resp, err := b.model.Generate(ctx, augmentedPrompt)
+	return Response{Content: "Agent loop limit reached."}, nil
+}
+
+// executeToolCalls parses the response for JSON tool invocations and executes them.
+// Returns: executed (bool), output (string), intervention (error), executionErr (error)
+func (b *Brain) executeToolCalls(ctx context.Context, input string) (bool, string, error, error) {
+	// Simple JSON block parser: Look for ```json { "tool": ... } ```
+	// This is a basic implementation. Robust parsing would be better.
+	start := strings.Index(input, "```json")
+	if start == -1 {
+		return false, "", nil, nil
+	}
+	end := strings.Index(input[start:], "```")
+	// We need the *second* ``` (closing block)
+	block := input[start+7:] // skip ```json
+	endBlock := strings.Index(block, "```")
+	if endBlock == -1 {
+		return false, "", nil, nil
+	}
+	jsonStr := strings.TrimSpace(block[:endBlock])
+
+	// Attempt to parse tool call
+	var call struct {
+		Tool string          `json:"tool"`
+		Args json.RawMessage `json:"parameters"`
+	}
+	if err := json.Unmarshal([]byte(jsonStr), &call); err != nil {
+		// Not a tool call, maybe just code?
+		return false, "", nil, nil
+	}
+
+	if call.Tool == "" {
+		return false, "", nil, nil
+	}
+
+	// Found a tool call!
+	t, found := b.tools.Get(call.Tool)
+	if !found {
+		return true, "", nil, fmt.Errorf("tool '%s' not found", call.Tool)
+	}
+
+	// Execute with Enclave/Intervention checks handling happens inside the detected Tool (which is wrapped)
+	// If it returns InterventionError, we return it to bubble up.
+	res, err := t.Execute(ctx, call.Args)
 	if err != nil {
-		return Response{}, fmt.Errorf("generating response: %w", err)
+		// Check for InterventionError type-assertion
+		// Since custom error, we can check string or type if visible.
+		// Ideally type assertion: err.(*tooling.InterventionError)
+		// But for now, let's just return the error.
+		return true, "", err, err
 	}
 
-	// Parse the response into code/text segments (useful for downstream routing/UIs).
-	parsed := prompt.ParsedResponse{}
-	if b.config.Prompt.Enabled {
-		parsed = prompt.ParseModelResponse(resp)
-	}
-
-	// 6. Record interaction in Session
-	session.AddThread(&tooling.Thread{
-		ID:       req.ID,
-		Prompt:   req.Content,
-		Response: resp,
-		Metadata: map[string]interface{}{
-			"prompt_intent":    promptIntent,
-			"recommendations":  recs,
-			"response_parts":   parsed.Parts,
-			"response_raw_len": len(resp),
-		},
-	})
-
-	// Store result in memory
-	_ = b.memory.Store(req.ID, resp)
-
-	return Response{
-		Content: resp,
-	}, nil
+	return true, res.Content, nil, nil
 }
 
 // PullModel requests a model download (currently only supported by Ollama)

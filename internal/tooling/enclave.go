@@ -10,6 +10,18 @@ import (
 	"sync"
 )
 
+// InterventionError is returned when a tool needs user selection/approval.
+// The UI should render the choices and then call Resume(selectedOption).
+type InterventionError struct {
+	Title   string
+	Choices []string
+	Resume  func(choice string) (*ToolResult, error)
+}
+
+func (e *InterventionError) Error() string {
+	return "intervention required: " + e.Title
+}
+
 // Enclave provides a secure policy layer for tool execution.
 // It supports approvals scoped to: once (caller-handled), session, or forever (persisted).
 type Enclave struct {
@@ -97,8 +109,27 @@ func (e *Enclave) Interceptor(tool Tool, args json.RawMessage) (bool, error) {
 		}
 	}
 
-	req.Suggestion = "Reply with: approve once | approve session | approve forever | deny"
-	return false, &NeedsApprovalError{Request: req}
+	// Create resumption closure
+	resumeFunc := func(choice string) (*ToolResult, error) {
+		switch choice {
+		case "Approve Once":
+			return tool.Execute(context.TODO(), args) // Execute directly
+		case "Approve Session":
+			e.ApproveSession(key)
+			return tool.Execute(context.TODO(), args)
+		case "Approve Forever":
+			e.ApproveForever(key)
+			return tool.Execute(context.TODO(), args)
+		default:
+			return nil, fmt.Errorf("security: user denied %s", req.Summary)
+		}
+	}
+
+	return false, &InterventionError{
+		Title:   fmt.Sprintf("Allow action? %s", req.Summary),
+		Choices: []string{"Approve Once", "Approve Session", "Approve Forever", "Deny"},
+		Resume:  resumeFunc,
+	}
 }
 
 // buildApprovalRequest inspects a tool call and returns a stable key and description.
