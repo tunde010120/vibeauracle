@@ -464,15 +464,45 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) styleMessage(v string) string {
-	words := strings.Fields(v)
-	for i, w := range words {
-		if strings.HasPrefix(w, "/") {
-			words[i] = systemStyle.Render(w)
-		} else if strings.HasPrefix(w, "#") {
-			words[i] = tagStyle.Render(w)
+	if strings.TrimSpace(v) == "" {
+		return ""
+	}
+
+	parts := strings.Split(v, " ")
+	for i, p := range parts {
+		if strings.HasPrefix(p, "/") {
+			// Check if it's a known command or subcommand
+			isKnown := false
+			for _, c := range allCommands {
+				if c == p {
+					isKnown = true
+					break
+				}
+			}
+			if !isKnown {
+				for _, subs := range subCommands {
+					for _, s := range subs {
+						if s == p {
+							isKnown = true
+							break
+						}
+					}
+					if isKnown {
+						break
+					}
+				}
+			}
+
+			if isKnown {
+				parts[i] = systemStyle.Render(p)
+			} else {
+				parts[i] = errorStyle.Render(p)
+			}
+		} else if strings.HasPrefix(p, "#") {
+			parts[i] = tagStyle.Render(p)
 		}
 	}
-	return strings.Join(words, " ")
+	return strings.Join(parts, " ")
 }
 
 func (m *model) handlePerusalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -686,18 +716,25 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 	words := strings.Fields(val)
 
 	suggestion := m.suggestions[m.suggestionIdx]
-	trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
-	replacement := m.triggerChar + trimmed
+	
+	// Determine if we are completing a top-level command or a subcommand/argument
+	isTopLevel := len(words) <= 1 && !strings.HasSuffix(val, " ")
 
-	if len(words) == 0 {
+	if isTopLevel {
+		trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
+		replacement := m.triggerChar + trimmed
 		m.textarea.SetValue(replacement)
 	} else if strings.HasSuffix(val, " ") {
 		// We were suggesting subcommands because of a trailing space
 		m.textarea.SetValue(val + suggestion)
 	} else {
+		// Replacing the last word (likely a subcommand or tag)
+		trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
+		replacement := m.triggerChar + trimmed
 		words[len(words)-1] = replacement
 		m.textarea.SetValue(strings.Join(words, " "))
 	}
+	
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	m.suggestions = nil
 
@@ -710,10 +747,15 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.triggerChar == "/" {
-		return m.handleSlashCommand(m.textarea.Value())
+	// Trigger immediate execution ONLY for top-level commands that don't have subcommands
+	if isTopLevel && m.triggerChar == "/" {
+		// Check if this command needs sub-commands
+		if _, hasSubs := subCommands[currentVal]; !hasSubs {
+			return m.handleSlashCommand(currentVal)
+		}
 	}
 
+	// For sub-commands or items with arguments, we stay in the textarea to allow more input
 	m.textarea.SetValue(m.textarea.Value() + " ")
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	return m, nil
