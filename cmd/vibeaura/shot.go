@@ -18,7 +18,7 @@ type ansiPart struct {
 // convertAnsiToSVG converts colored terminal output to a styled SVG ensemble
 func convertAnsiToSVG(ansi string) string {
 	lines := strings.Split(ansi, "\n")
-	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	re := regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 	
 	// Calculate true content width by stripping ANSI first, then trimming spaces
 	var maxLen int
@@ -141,11 +141,6 @@ func parseAnsiLine(line string, re *regexp.Regexp) []ansiPart {
 	}
 	
 	return parts
-}
-
-func stripAnsi(str string) string {
-	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	return re.ReplaceAllString(str, "")
 }
 
 // convertToPNG attempts to convert SVG to PNG using system tools
