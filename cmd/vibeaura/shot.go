@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -48,7 +49,7 @@ func convertAnsiToSVG(ansi string) string {
 	sb.WriteString(`<circle cx="65" cy="40" r="6" fill="#FFBD2E"/>`)
 	sb.WriteString(`<circle cx="85" cy="40" r="6" fill="#27C93F"/>`)
 
-	sb.WriteString(`<text font-family="monospace" font-size="14" y="20">`)
+	sb.WriteString(`<text font-family="monospace, Courier New, monospace" font-size="14" xml:space="preserve">`)
 
 	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	
@@ -71,6 +72,8 @@ func convertAnsiToSVG(ansi string) string {
 			escapedText := strings.ReplaceAll(p.text, "&", "&amp;")
 			escapedText = strings.ReplaceAll(escapedText, "<", "&lt;")
 			escapedText = strings.ReplaceAll(escapedText, ">", "&gt;")
+			// Ensure spaces are visible
+			escapedText = strings.ReplaceAll(escapedText, " ", "&#160;")
 			
 			sb.WriteString(fmt.Sprintf(`<tspan style="%s">%s</tspan>`, style, escapedText))
 		}
@@ -83,7 +86,7 @@ func convertAnsiToSVG(ansi string) string {
 
 func parseAnsiLine(line string, re *regexp.Regexp) []ansiPart {
 	var parts []ansiPart
-	currFg := ""
+	currFg := "#FAFAFA"
 	currBold := false
 	
 	indices := re.FindAllStringIndex(line, -1)
@@ -96,21 +99,32 @@ func parseAnsiLine(line string, re *regexp.Regexp) []ansiPart {
 		
 		code := line[idx[0]:idx[1]]
 		if code == "\x1b[0m" {
-			currFg = ""
+			currFg = "#FAFAFA"
 			currBold = false
 		} else {
-			// Basic color parsing (limited for MVP)
-			if strings.Contains(code, "1;") || code == "\x1b[1m" {
+			// Handle TrueColor: \x1b[38;2;r;g;bm
+			if strings.Contains(code, "38;2;") {
+				parts := strings.Split(strings.Trim(code, "\x1b[m"), ";")
+				if len(parts) >= 5 {
+					r, _ := strconv.Atoi(parts[2])
+					g, _ := strconv.Atoi(parts[3])
+					b, _ := strconv.Atoi(parts[4])
+					currFg = fmt.Sprintf("#%02x%02x%02x", r, g, b)
+				}
+			} else if strings.Contains(code, "38;5;") {
+				// Simplified 256 color
+				currFg = "#7D56F4"
+			} else if strings.Contains(code, ";1m") || strings.Contains(code, "[1;") || code == "\x1b[1m" {
 				currBold = true
 			}
-			// Look for HEX or 256 colors if possible, else use mapping
-			if strings.Contains(code, "38;5;") || strings.Contains(code, "38;2;") {
-				// Complex color - for now default to a highlight
-				currFg = "#7D56F4"
-			} else if strings.Contains(code, "35") {
-				currFg = "#EE6FF8" // userStyle
+			
+			// Map basic colors if found
+			if strings.Contains(code, "35") {
+				currFg = "#EE6FF8"
 			} else if strings.Contains(code, "36") {
-				currFg = "#04D9FF" // aiStyle
+				currFg = "#04D9FF"
+			} else if strings.Contains(code, "34") {
+				currFg = "#7D56F4"
 			}
 		}
 		lastEnd = idx[1]

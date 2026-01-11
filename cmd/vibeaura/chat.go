@@ -593,8 +593,26 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 		BorderForeground(highlight).
 		Padding(1, 2)
 	
+	// Force a standard size for the screenshot to ensure legibility and correct ratios
+	oldWidth, oldHeight := m.width, m.height
+	m.width = 140
+	m.height = 45
+	// Update components to reflect the new size
+	m.viewport.Width = m.width / 2
+	m.perusalVp.Width = m.width / 2 - 4
+	m.viewport.Height = m.height - m.textarea.Height() - 6
+	m.perusalVp.Height = m.viewport.Height
+	m.textarea.SetWidth(m.viewport.Width)
+	
 	rawView := m.View()
 	captured := frameStyle.Render(rawView)
+
+	// Restore original size immediately
+	m.width, m.height = oldWidth, oldHeight
+	m.viewport.Width = m.width
+	if m.showTree { m.viewport.Width = m.width / 2 }
+	m.viewport.Height = m.height - m.textarea.Height() - 6
+	m.textarea.SetWidth(m.viewport.Width)
 
 	// Tier 2: Generate SVG but don't save yet if targeting PNG
 	svgContent := convertAnsiToSVG(captured)
