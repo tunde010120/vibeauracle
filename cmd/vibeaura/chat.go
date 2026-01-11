@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -111,7 +112,7 @@ type chatState struct {
 }
 
 var allCommands = []string{
-	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree",
+	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot",
 }
 
 func initialModel(b *brain.Brain) *model {
@@ -570,13 +571,50 @@ func (m *model) processRequest(content string) tea.Cmd {
 	}
 }
 
+func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
+	config := m.brain.GetConfig()
+	dir := config.UI.ScreenshotDir
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		m.messages = append(m.messages, errorStyle.Render(" Screenshot Error: ")+err.Error())
+		return m, nil
+	}
+
+	timestamp := time.Now().Format("2006-01-02_150405")
+	filename := fmt.Sprintf("vibeaura_%s.ansi", timestamp)
+	path := filepath.Join(dir, filename)
+
+	// Capture the raw view
+	rawView := m.View()
+
+	// Beautiful frame styling with simulated depth
+	frameStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#7D56F4")).
+		Padding(1, 2).
+		Background(lipgloss.Color("#000000"))
+
+	// Construct simulated shadow
+	captured := frameStyle.Render(rawView)
+	
+	// Save as ANSI (the raw terminal experience)
+	if err := os.WriteFile(path, []byte(captured), 0644); err != nil {
+		m.messages = append(m.messages, errorStyle.Render(" Save Error: ")+err.Error())
+	} else {
+		m.messages = append(m.messages, systemStyle.Render(" SCREENSHOT CAPTURED ") + "\n" + helpStyle.Render("📂 Sub-dir: vibeaura\n📍 Path: "+path))
+	}
+	
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
 func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 	parts := strings.Fields(cmd)
 	m.textarea.Reset()
 	
 	switch parts[0] {
 	case "/help":
-		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ") + "\n" + helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /cwd     - Show current directory\n• /version - Show current version info\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
+		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ") + "\n" + helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /cwd     - Show current directory\n• /version - Show current version info\n• /shot    - Take a beautiful TUI screenshot\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
 	case "/status":
 		snapshot, _ := m.brain.GetSnapshot()
 		status := fmt.Sprintf(systemStyle.Render(" SYSTEM ") + "\n" + helpStyle.Render("CPU: %.1f%% | Mem: %.1f%%"), snapshot.CPUUsage, snapshot.MemoryUsage)
@@ -586,6 +624,8 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, systemStyle.Render(" CWD ") + " " + helpStyle.Render(snapshot.WorkingDir))
 	case "/version":
 		m.messages = append(m.messages, systemStyle.Render(" VERSION ") + "\n" + helpStyle.Render(fmt.Sprintf("App: %s\nCommit: %s\nCompiler: %s", Version, Commit, runtime.Version())))
+	case "/shot":
+		return m.takeScreenshot()
 	case "/show-tree":
 		m.showTree = !m.showTree
 		// trigger resize

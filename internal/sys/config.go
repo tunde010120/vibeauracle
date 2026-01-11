@@ -25,7 +25,8 @@ type Config struct {
 	} `mapstructure:"update"`
 
 	UI struct {
-		Theme string `mapstructure:"theme"`
+		Theme         string `mapstructure:"theme"`
+		ScreenshotDir string `mapstructure:"screenshot_dir"`
 	} `mapstructure:"ui"`
 
 	DataDir string `mapstructure:"-"`
@@ -56,6 +57,16 @@ func NewConfigManager() (*ConfigManager, error) {
 	v.SetDefault("model.endpoint", "http://localhost:11434")
 	v.SetDefault("model.name", "llama3")
 	v.SetDefault("ui.theme", "dark")
+	
+	// Platform-specific screenshot directory
+	var defaultShotDir string
+	if _, err := os.Stat("/data/data/com.termux/files/usr/bin/bash"); err == nil {
+		defaultShotDir = filepath.Join(home, "downloads", "vibeaura")
+	} else {
+		defaultShotDir = filepath.Join(home, "Downloads", "vibeaura")
+	}
+	v.SetDefault("ui.screenshot_dir", defaultShotDir)
+
 	v.SetDefault("update.build_from_source", false)
 	v.SetDefault("update.beta", false)
 	v.SetDefault("update.auto_update", true)
@@ -105,6 +116,7 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 	cm.v.Set("update.verbose", cfg.Update.Verbose)
 	cm.v.Set("update.failed_commits", cfg.Update.FailedCommits)
 	cm.v.Set("ui.theme", cfg.UI.Theme)
+	cm.v.Set("ui.screenshot_dir", cfg.UI.ScreenshotDir)
 	
 	return cm.v.WriteConfig()
 }
