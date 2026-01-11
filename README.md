@@ -15,10 +15,18 @@ curl -fsSL https://raw.githubusercontent.com/nathfavour/vibeauracle/release/inst
 wget -qO- https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.sh | sh
 ```
 
-### 🪟 Windows (PowerShell)
+### 🪟 Windows (Powershell)
 Run the following in PowerShell as Administrator:
 ```powershell
 iex (irm https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.ps1)
+```
+
+### 📦 Manual Installation (Pre-built)
+If you prefer, you can download pre-built binaries directly from our [Releases page](https://github.com/nathfavour/vibeauracle/releases).
+
+Simply choose the binary that matches your OS and architecture, make it executable (`chmod +x`), and move it to your PATH. **You only need to do this once**—future updates are handled automatically with:
+```bash
+vibeaura update
 ```
 
 ### 🐳 Docker
