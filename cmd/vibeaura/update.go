@@ -586,11 +586,9 @@ func restartWithArgs(args []string) {
 // and removes any conflicting binaries from other system directories.
 func ensureInstalled() {
 	// Skip for dev builds to avoid disrupting local development
-	/*
 	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
 		return
 	}
-	*/
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -709,7 +707,11 @@ func removeBinary(path string) {
 	err := os.Remove(path)
 	if err != nil {
 		// Fallback to sudo rm for system paths
-		exec.Command("sudo", "rm", "-f", path).Run()
+		sudoRm := exec.Command("sudo", "rm", "-f", path)
+		sudoRm.Stdout = os.Stdout
+		sudoRm.Stderr = os.Stderr
+		sudoRm.Stdin = os.Stdin
+		sudoRm.Run()
 	}
 }
 
