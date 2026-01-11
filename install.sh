@@ -41,15 +41,15 @@ echo "Detected Platform: $OS/$ARCH"
 
 # Get latest release tag
 # GitHub's /releases/latest endpoint only returns non-prereleases.
-# We fallback to the full list and grab the first one (usually latest or beta)
-# or look specifically for 'latest'.
+# We fetch the release list and use a robust way to extract the tag name,
+# handling both pretty-printed and minified JSON.
 TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases")
-LATEST_TAG=$(echo "$TAG_DATA" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
 
 # If we found tags but it wasn't the 'latest' tag specifically, 
 # try to see if 'latest' exists in the list for stability
 if [[ "$LATEST_TAG" != "latest" ]]; then
-    STABLE_TAG=$(echo "$TAG_DATA" | grep '"tag_name": "latest"' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+    STABLE_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"latest"' | head -n 1 | cut -d'"' -f4)
     if [ -n "$STABLE_TAG" ]; then
         LATEST_TAG="$STABLE_TAG"
     fi
