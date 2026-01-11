@@ -44,15 +44,20 @@ echo "Detected Platform: $OS/$ARCH"
 # We fetch the release list and use a robust way to extract the tag name,
 # handling both pretty-printed and minified JSON.
 echo "Fetching release metadata..."
-TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases" 2>/tmp/vibe-curl-err || true)
+
+# Use a portable temporary file (Termux doesn't have /tmp)
+TMP_ERR=$(mktemp)
+TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases" 2>"$TMP_ERR" || true)
 
 if [ -z "$TAG_DATA" ]; then
     echo "Error: Failed to fetch releases from GitHub API."
-    if [ -f /tmp/vibe-curl-err ]; then
-        cat /tmp/vibe-curl-err
+    if [ -f "$TMP_ERR" ]; then
+        cat "$TMP_ERR"
+        rm "$TMP_ERR"
     fi
     exit 1
 fi
+rm "$TMP_ERR"
 
 LATEST_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
 
