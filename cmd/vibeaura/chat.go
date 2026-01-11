@@ -580,29 +580,42 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 	}
 
 	timestamp := time.Now().Format("2006-01-02_150405")
-	filename := fmt.Sprintf("vibeaura_%s.ansi", timestamp)
-	path := filepath.Join(dir, filename)
+	filename := fmt.Sprintf("vibeaura_%s", timestamp)
+	ansiPath := filepath.Join(dir, filename+".ansi")
+	svgPath := filepath.Join(dir, filename+".svg")
+	pngPath := filepath.Join(dir, filename+".png")
 
-	// Capture the raw view
-	rawView := m.View()
-
-	// Beautiful frame styling with simulated depth
+	// Create styled frame for ANSI capture
 	frameStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#7D56F4")).
-		Padding(1, 2).
-		Background(lipgloss.Color("#000000"))
-
-	// Construct simulated shadow
+		BorderForeground(highlight).
+		Padding(1, 2)
+	
+	rawView := m.View()
 	captured := frameStyle.Render(rawView)
+
+	// Save ANSI
+	_ = os.WriteFile(ansiPath, []byte(captured), 0644)
+
+	// Generate and Save SVG
+	svgContent := convertAnsiToSVG(captured)
+	_ = os.WriteFile(svgPath, []byte(svgContent), 0644)
+
+	// Attempt PNG conversion
+	err := convertToPNG(svgPath, pngPath)
 	
-	// Save as ANSI (the raw terminal experience)
-	if err := os.WriteFile(path, []byte(captured), 0644); err != nil {
-		m.messages = append(m.messages, errorStyle.Render(" Save Error: ")+err.Error())
+	msg := systemStyle.Render(" SCREENSHOT CAPTURED ") + "\n"
+	msg += helpStyle.Render("📍 ANSI: "+ansiPath+"\n📍 SVG:  "+svgPath)
+	
+	if err == nil {
+		msg += helpStyle.Render("\n🖼️ PNG:  "+pngPath)
+		// Clean up intermediate SVG if we have a PNG? 
+		// Actually, users might want both.
 	} else {
-		m.messages = append(m.messages, systemStyle.Render(" SCREENSHOT CAPTURED ") + "\n" + helpStyle.Render("📂 Sub-dir: vibeaura\n📍 Path: "+path))
+		msg += "\n" + errorStyle.Render(" PNG conversion failed: ") + helpStyle.Render("Install 'rsvg-convert' or 'ffmpeg'")
 	}
-	
+
+	m.messages = append(m.messages, msg)
 	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 	m.viewport.GotoBottom()
 	return m, nil
