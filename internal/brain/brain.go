@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nathfavour/vibeauracle/auth"
 	vcontext "github.com/nathfavour/vibeauracle/context"
 	"github.com/nathfavour/vibeauracle/model"
 	"github.com/nathfavour/vibeauracle/sys"
-	"github.com/nathfavour/vibeauracle/auth"
 	"github.com/nathfavour/vibeauracle/tooling"
+	"github.com/nathfavour/vibeauracle/vault"
 )
 
 // Request represents a user request or system trigger
@@ -31,6 +32,7 @@ type Brain struct {
 	fs       sys.FS
 	config   *sys.Config
 	auth     *auth.Handler
+	vault    *vault.Vault
 	memory   *vcontext.Memory
 	tools    *tooling.Registry
 	security *tooling.SecurityGuard
@@ -42,24 +44,39 @@ func New() *Brain {
 	cm, _ := sys.NewConfigManager()
 	cfg, _ := cm.Load()
 
+	// Initialize vault
+	v, _ := vault.New("vibeauracle")
+
 	// Initialize model provider based on config
-	var provider model.Provider
-	if cfg.Model.Provider == "openai" {
-		provider, _ = model.NewOpenAIProvider(cfg.Model.Endpoint, cfg.Model.Name)
-	} else {
-		provider, _ = model.NewOllamaProvider(cfg.Model.Endpoint, cfg.Model.Name)
+	configMap := map[string]string{
+		"endpoint": cfg.Model.Endpoint,
+		"model":    cfg.Model.Name,
+		"api_key":  cfg.Model.Endpoint, // Simplified for now
 	}
+
+	// Try to get secrets from vault
+	if v != nil {
+		if token, err := v.Get("github_models_pat"); err == nil {
+			configMap["token"] = token
+		}
+		if key, err := v.Get("openai_api_key"); err == nil {
+			configMap["api_key"] = key
+		}
+	}
+
+	p, _ := model.GetProvider(cfg.Model.Provider, configMap)
 
 	fs := sys.NewLocalFS("")
 	registry := tooling.NewRegistry()
 	registry.Register(tooling.NewTraversalTool(fs))
 
 	return &Brain{
-		model:    model.New(provider),
+		model:    model.New(p),
 		monitor:  sys.NewMonitor(),
 		fs:       fs,
 		config:   cfg,
 		auth:     auth.NewHandler(),
+		vault:    v,
 		memory:   vcontext.NewMemory(),
 		tools:    registry,
 		security: tooling.NewSecurityGuard(),
@@ -148,5 +165,21 @@ func (b *Brain) GetConfig() *sys.Config {
 // GetSnapshot returns a current snapshot of system resources via the monitor
 func (b *Brain) GetSnapshot() (sys.Snapshot, error) {
 	return b.monitor.GetSnapshot()
+}
+
+// StoreSecret saves a secret in the vault
+func (b *Brain) StoreSecret(key, value string) error {
+	if b.vault == nil {
+		return fmt.Errorf("vault not initialized")
+	}
+	return b.vault.Set(key, value)
+}
+
+// GetSecret retrieves a secret from the vault
+func (b *Brain) GetSecret(key string) (string, error) {
+	if b.vault == nil {
+		return "", fmt.Errorf("vault not initialized")
+	}
+	return b.vault.Get(key)
 }
 

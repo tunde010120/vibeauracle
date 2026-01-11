@@ -9,11 +9,19 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+func init() {
+	Register("ollama", func(config map[string]string) (Provider, error) {
+		return NewOllamaProvider(config["endpoint"], config["model"])
+	})
+}
+
 // OllamaProvider implements the Provider interface for Ollama
 type OllamaProvider struct {
 	client *api.Client
 	model  string
 }
+
+func (p *OllamaProvider) Name() string { return "ollama" }
 
 // NewOllamaProvider creates a new Ollama provider
 // host is the Ollama server URL (e.g., "http://localhost:11434")

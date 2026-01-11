@@ -120,10 +120,10 @@ var allCommands = []string{
 }
 
 var subCommands = map[string][]string{
-	"/auth":  {"ollama", "github-models", "github-copilot", "openai", "anthropic"},
-	"/mcp":   {"list", "add", "logs", "call"},
-	"/sys":   {"stats", "env", "update", "logs"},
-	"/skill": {"list", "info", "load", "disable"},
+	"/auth":  {"/ollama", "/github-models", "/github-copilot", "/openai", "/anthropic"},
+	"/mcp":   {"/list", "/add", "/logs", "/call"},
+	"/sys":   {"/stats", "/env", "/update", "/logs"},
+	"/skill": {"/list", "/info", "/load", "/disable"},
 }
 
 func buildBanner(width int) string {
@@ -584,6 +584,7 @@ func (m *model) updateSuggestions(val string) {
 		if len(parts) == 1 {
 			if subs, ok := subCommands[parts[0]]; ok {
 				m.suggestions = subs
+				m.triggerChar = "" // Already has / in the subCommand string
 				sort.Strings(m.suggestions)
 				return
 			}
@@ -609,6 +610,7 @@ func (m *model) updateSuggestions(val string) {
 	if len(words) > 1 {
 		parentCmd := words[0]
 		if subs, ok := subCommands[parentCmd]; ok {
+			m.triggerChar = "" // Subcommands already have slashes
 			for _, sub := range subs {
 				if strings.HasPrefix(sub, lastWord) {
 					m.suggestions = append(m.suggestions, sub)
@@ -825,33 +827,43 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 
 func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+helpStyle.Render("Manage your AI provider credentials.\n\nUsage: /auth <provider> [key/endpoint]\nProviders: ollama, github-models, github-copilot, openai, anthropic"))
+		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+helpStyle.Render("Manage your AI provider credentials.\n\nUsage: /auth <provider> [key/endpoint]\nProviders: /ollama, /github-models, /github-copilot, /openai, /anthropic"))
 		return m, nil
 	}
 
 	provider := strings.ToLower(parts[1])
 	switch provider {
-	case "ollama":
+	case "/ollama":
 		if len(parts) > 2 {
 			endpoint := parts[2]
 			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render(fmt.Sprintf("Ollama endpoint set to: %s", endpoint)))
 		} else {
-			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render("Ollama is usually active on http://localhost:11434.\nTo use a custom host: /auth ollama <endpoint>"))
+			m.messages = append(m.messages, systemStyle.Render(" OLLAMA ")+"\n"+helpStyle.Render("Ollama is usually active on http://localhost:11434.\nTo use a custom host: /auth /ollama <endpoint>"))
 		}
-	case "github-models":
+	case "/github-models":
 		if len(parts) > 2 {
-			// TODO: Store in vault when fully implemented
-			m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("GitHub Models BYOK key received. Encryption & storage pending full implementation."))
+			err := m.brain.StoreSecret("github_models_pat", parts[2])
+			if err != nil {
+				m.messages = append(m.messages, errorStyle.Render(" VAULT ERROR ")+"\n"+err.Error())
+			} else {
+				m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("GitHub Models PAT received and stored securely."))
+			}
 		} else {
-			m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("Special BYOK method for GitHub AI Models.\nUsage: /auth github-models <your-pat-token>"))
+			m.messages = append(m.messages, systemStyle.Render(" GITHUB MODELS ")+"\n"+helpStyle.Render("Special BYOK method for GitHub AI Models.\nUsage: /auth /github-models <your-pat-token>"))
 		}
-	case "github-copilot":
+	case "/github-copilot":
 		m.messages = append(m.messages, systemStyle.Render(" GITHUB COPILOT ")+"\n"+errorStyle.Render(" Not yet integrated "))
-	case "openai", "anthropic":
+	case "/openai", "/anthropic":
 		if len(parts) > 2 {
-			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(provider))+"\n"+helpStyle.Render(fmt.Sprintf("%s API key received and staged.", strings.Title(provider))))
+			providerName := strings.TrimPrefix(provider, "/")
+			err := m.brain.StoreSecret(providerName+"_api_key", parts[2])
+			if err != nil {
+				m.messages = append(m.messages, errorStyle.Render(" VAULT ERROR ")+"\n"+err.Error())
+			} else {
+				m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(providerName))+"\n"+helpStyle.Render(fmt.Sprintf("%s API key received and stored securely.", strings.Title(providerName))))
+			}
 		} else {
-			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(provider))+"\n"+helpStyle.Render(fmt.Sprintf("Usage: /auth %s <api-key>", provider)))
+			m.messages = append(m.messages, systemStyle.Render(strings.ToUpper(strings.TrimPrefix(provider, "/")))+"\n"+helpStyle.Render(fmt.Sprintf("Usage: /auth %s <api-key>", provider)))
 		}
 	default:
 		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+errorStyle.Render(fmt.Sprintf(" Provider '%s' not yet integrated ", provider)))
@@ -864,20 +876,20 @@ func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
 
 func (m *model) handleMcpCommand(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Manage Model Context Protocol servers.\n\nUsage: /mcp <subcommand>\nSubcommands: list, add, logs, call"))
+		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Manage Model Context Protocol servers.\n\nUsage: /mcp <subcommand>\nSubcommands: /list, /add, /logs, /call"))
 		return m, nil
 	}
 
 	sub := strings.ToLower(parts[1])
 	switch sub {
-	case "list":
+	case "/list":
 		m.messages = append(m.messages, systemStyle.Render(" MCP SERVERS ")+"\n"+helpStyle.Render("• github (stdio) - tools: github_query\n• postgres (stdio) - tools: postgres_exec"))
-	case "add":
-		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Usage: /mcp add <name> <command> [args...]"))
-	case "logs":
+	case "/add":
+		m.messages = append(m.messages, systemStyle.Render(" MCP ")+"\n"+helpStyle.Render("Usage: /mcp /add <name> <command> [args...]"))
+	case "/logs":
 		m.messages = append(m.messages, systemStyle.Render(" MCP LOGS ")+"\n"+subtleStyle.Render("Waiting for MCP traffic..."))
-	case "call":
-		m.messages = append(m.messages, systemStyle.Render(" MCP CALL ")+"\n"+helpStyle.Render("Usage: /mcp call <tool_name> <json_args>"))
+	case "/call":
+		m.messages = append(m.messages, systemStyle.Render(" MCP CALL ")+"\n"+helpStyle.Render("Usage: /mcp /call <tool_name> <json_args>"))
 	default:
 		m.messages = append(m.messages, errorStyle.Render(" Unknown MCP subcommand: ")+sub)
 	}
@@ -889,25 +901,25 @@ func (m *model) handleMcpCommand(parts []string) (tea.Model, tea.Cmd) {
 
 func (m *model) handleSysCommand(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		m.messages = append(m.messages, systemStyle.Render(" SYS ")+"\n"+helpStyle.Render("System and hardware intimacy controls.\n\nUsage: /sys <subcommand>\nSubcommands: stats, env, update, logs"))
+		m.messages = append(m.messages, systemStyle.Render(" SYS ")+"\n"+helpStyle.Render("System and hardware intimacy controls.\n\nUsage: /sys <subcommand>\nSubcommands: /stats, /env, /update, /logs"))
 		return m, nil
 	}
 
 	sub := strings.ToLower(parts[1])
 	switch sub {
-	case "stats":
+	case "/stats":
 		snapshot, _ := m.brain.GetSnapshot()
 		stats := fmt.Sprintf(systemStyle.Render(" POWER SNAPSHOT ")+"\n"+
 			helpStyle.Render("OS: %s | Arch: %s\nCPU: %.1f%% | Mem: %.1f%%\nGoroutines: %d"),
 			runtime.GOOS, runtime.GOARCH, snapshot.CPUUsage, snapshot.MemoryUsage, runtime.NumGoroutine())
 		m.messages = append(m.messages, stats)
-	case "env":
+	case "/env":
 		m.messages = append(m.messages, systemStyle.Render(" ENVIRONMENT ")+"\n"+helpStyle.Render("Limited view (Filtered for security)\nSHELL: %s\nPATH: %s..."), os.Getenv("SHELL"), os.Getenv("PATH")[:30])
-	case "update":
+	case "/update":
 		// This uses the logic from update.go
 		m.messages = append(m.messages, systemStyle.Render(" UPDATE ")+"\n"+helpStyle.Render("Checking for latest release on GitHub..."))
 		// In a real implementation, we would return a Cmd here to run the update check
-	case "logs":
+	case "/logs":
 		m.messages = append(m.messages, systemStyle.Render(" SYSTEM LOGS ")+"\n"+subtleStyle.Render("Streaming vibeauracle.log..."))
 	default:
 		m.messages = append(m.messages, errorStyle.Render(" Unknown SYS subcommand: ")+sub)
@@ -920,20 +932,20 @@ func (m *model) handleSysCommand(parts []string) (tea.Model, tea.Cmd) {
 
 func (m *model) handleSkillCommand(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		m.messages = append(m.messages, systemStyle.Render(" SKILL ")+"\n"+helpStyle.Render("Manage Brain capabilities (Vibes).\n\nUsage: /skill <subcommand>\nSubcommands: list, info, load, disable"))
+		m.messages = append(m.messages, systemStyle.Render(" SKILL ")+"\n"+helpStyle.Render("Manage Brain capabilities (Vibes).\n\nUsage: /skill <subcommand>\nSubcommands: /list, /info, /load, /disable"))
 		return m, nil
 	}
 
 	sub := strings.ToLower(parts[1])
 	switch sub {
-	case "list":
+	case "/list":
 		m.messages = append(m.messages, systemStyle.Render(" ACTIVE SKILLS ")+"\n"+helpStyle.Render("• hello-world (vibe)\n• fs-manager (internal)\n• git-ops (internal)"))
-	case "info":
-		m.messages = append(m.messages, systemStyle.Render(" SKILL INFO ")+"\n"+helpStyle.Render("Usage: /skill info <skill_id>"))
-	case "load":
-		m.messages = append(m.messages, systemStyle.Render(" LOAD SKILL ")+"\n"+helpStyle.Render("Usage: /skill load <path_or_url>"))
-	case "disable":
-		m.messages = append(m.messages, systemStyle.Render(" DISABLE SKILL ")+"\n"+helpStyle.Render("Usage: /skill disable <skill_id>"))
+	case "/info":
+		m.messages = append(m.messages, systemStyle.Render(" SKILL INFO ")+"\n"+helpStyle.Render("Usage: /skill /info <skill_id>"))
+	case "/load":
+		m.messages = append(m.messages, systemStyle.Render(" LOAD SKILL ")+"\n"+helpStyle.Render("Usage: /skill /load <path_or_url>"))
+	case "/disable":
+		m.messages = append(m.messages, systemStyle.Render(" DISABLE SKILL ")+"\n"+helpStyle.Render("Usage: /skill /disable <skill_id>"))
 	default:
 		m.messages = append(m.messages, errorStyle.Render(" Unknown SKILL subcommand: ")+sub)
 	}

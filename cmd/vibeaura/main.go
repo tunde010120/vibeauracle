@@ -77,7 +77,49 @@ the IDE, and the AI assistant into a single system-aware experience.`,
 	},
 }
 
+var authCmd = &cobra.Command{
+	Use:   "auth",
+	Short: "Manage AI provider credentials",
+	Long:  "Securely store and manage API keys for providers like GitHub Models, OpenAI, and Ollama.",
+}
+
+var authGithubCmd = &cobra.Command{
+	Use:   "github-models <token>",
+	Short: "Configure GitHub Models PAT",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		token := args[0]
+		b := brain.New()
+		err := b.StoreSecret("github_models_pat", token)
+		if err != nil {
+			fmt.Printf("Error storing secret: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("GitHub Models PAT stored successfully in secure vault.")
+	},
+}
+
+var authOpenAICmd = &cobra.Command{
+	Use:   "openai <api-key>",
+	Short: "Configure OpenAI API key",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		key := args[0]
+		b := brain.New()
+		err := b.StoreSecret("openai_api_key", key)
+		if err != nil {
+			fmt.Printf("Error storing secret: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("OpenAI API key stored successfully in secure vault.")
+	},
+}
+
 func main() {
+	rootCmd.AddCommand(authCmd)
+	authCmd.AddCommand(authGithubCmd)
+	authCmd.AddCommand(authOpenAICmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

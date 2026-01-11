@@ -8,10 +8,18 @@ import (
 	"github.com/tmc/langchaingo/llms/openai"
 )
 
+func init() {
+	Register("openai", func(config map[string]string) (Provider, error) {
+		return NewOpenAIProvider(config["api_key"], config["model"])
+	})
+}
+
 // OpenAIProvider implements the Provider interface for OpenAI
 type OpenAIProvider struct {
 	llm llms.Model
 }
+
+func (p *OpenAIProvider) Name() string { return "openai" }
 
 // NewOpenAIProvider creates a new OpenAI provider
 func NewOpenAIProvider(apiKey string, modelName string) (*OpenAIProvider, error) {
