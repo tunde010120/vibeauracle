@@ -47,6 +47,7 @@ type model struct {
 	suggestions   []string
 	suggestionIdx int
 	triggerChar   string // '/' or '#'
+	isCapturing   bool
 }
 
 var (
@@ -587,35 +588,13 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 	svgPath := basePath + ".svg"
 	pngPath := basePath + ".png"
 
-	// Create styled frame for ANSI capture
-	frameStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(highlight).
-		Padding(1, 2)
-	
-	// Force a standard size for the screenshot to ensure legibility and correct ratios
-	oldWidth, oldHeight := m.width, m.height
-	m.width = 140
-	m.height = 45
-	// Update components to reflect the new size
-	m.viewport.Width = m.width / 2
-	m.perusalVp.Width = m.width / 2 - 4
-	m.viewport.Height = m.height - m.textarea.Height() - 6
-	m.perusalVp.Height = m.viewport.Height
-	m.textarea.SetWidth(m.viewport.Width)
-	
+	// Use current layout but ensure it's rendered for capture
+	m.isCapturing = true
 	rawView := m.View()
-	captured := frameStyle.Render(rawView)
-
-	// Restore original size immediately
-	m.width, m.height = oldWidth, oldHeight
-	m.viewport.Width = m.width
-	if m.showTree { m.viewport.Width = m.width / 2 }
-	m.viewport.Height = m.height - m.textarea.Height() - 6
-	m.textarea.SetWidth(m.viewport.Width)
+	m.isCapturing = false
 
 	// Tier 2: Generate SVG but don't save yet if targeting PNG
-	svgContent := convertAnsiToSVG(captured)
+	svgContent := convertAnsiToSVG(rawView)
 	_ = os.WriteFile(svgPath, []byte(svgContent), 0644)
 
 	// Tier 1: Try PNG
@@ -633,7 +612,7 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 		msg += "\n" + errorStyle.Render(" PNG fail: ") + helpStyle.Render("install ffmpeg/rsvg")
 	} else {
 		// Fallback Tier: ANSI only
-		_ = os.WriteFile(ansiPath, []byte(captured), 0644)
+		_ = os.WriteFile(ansiPath, []byte(rawView), 0644)
 		msg += helpStyle.Render("📄 Saved ANSI: "+ansiPath)
 	}
 
@@ -721,8 +700,10 @@ func (m *model) View() string {
 		m.textarea.View(),
 	)
 
-	if suggs := m.renderSuggestions(); suggs != "" {
-		view += "\n" + suggs
+	if !m.isCapturing {
+		if suggs := m.renderSuggestions(); suggs != "" {
+			view += "\n" + suggs
+		}
 	}
 
 	return view + "\n"
