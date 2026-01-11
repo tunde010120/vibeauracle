@@ -64,20 +64,43 @@ func getResilientClient() *http.Client {
 
 	return &http.Client{
 		Transport: transport,
-		Timeout:   15 * time.Second,
+		Timeout:   30 * time.Second,
 	}
 }
 
-func getLatestRelease() (*releaseInfo, error) {
+// fetchWithFallback attempts to fetch a URL using Go's http client,
+// and falls back to 'curl' if a network error occurs.
+func fetchWithFallback(url string) ([]byte, error) {
 	client := getResilientClient()
-	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
+	resp, err := client.Get(url)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("server returned status: %d", resp.StatusCode)
+		}
+		return io.ReadAll(resp.Body)
+	}
+
+	// Network error detected, try curl as a fallback (highly reliable on Termux/Mobile)
+	if _, curlErr := exec.LookPath("curl"); curlErr == nil {
+		cmd := exec.Command("curl", "-sL", url)
+		data, cmdErr := cmd.Output()
+		if cmdErr == nil {
+			return data, nil
+		}
+	}
+
+	return nil, err // Return original Go error if curl also fails or is missing
+}
+
+func getLatestRelease() (*releaseInfo, error) {
+	data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	var releases []releaseInfo
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+	if err := json.Unmarshal(data, &releases); err != nil {
 		return nil, err
 	}
 
@@ -90,11 +113,10 @@ func getLatestRelease() (*releaseInfo, error) {
 	// Try to fetch metadata.json from assets for precise versioning
 	for _, asset := range latest.Assets {
 		if asset.Name == "metadata.json" {
-			metaResp, err := client.Get(asset.BrowserDownloadURL)
+			metaData, err := fetchWithFallback(asset.BrowserDownloadURL)
 			if err == nil {
-				defer metaResp.Body.Close()
 				var m metadata
-				if err := json.NewDecoder(metaResp.Body).Decode(&m); err == nil && m.Commit != "" {
+				if err := json.Unmarshal(metaData, &m); err == nil && m.Commit != "" {
 					latest.ActualSHA = m.Commit
 					return &latest, nil
 				}
@@ -103,15 +125,14 @@ func getLatestRelease() (*releaseInfo, error) {
 	}
 
 	// Fallback to tag-based SHA resolution if metadata.json is missing
-	tagResp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/git/ref/tags/%s", repo, latest.TagName))
+	tagData, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/git/ref/tags/%s", repo, latest.TagName))
 	if err == nil {
-		defer tagResp.Body.Close()
 		var tagInfo struct {
 			Object struct {
 				SHA string `json:"sha"`
 			} `json:"object"`
 		}
-		if err := json.NewDecoder(tagResp.Body).Decode(&tagInfo); err == nil && tagInfo.Object.SHA != "" {
+		if err := json.Unmarshal(tagData, &tagInfo); err == nil && tagInfo.Object.SHA != "" {
 			latest.ActualSHA = tagInfo.Object.SHA
 		}
 	}
@@ -143,17 +164,15 @@ func isUpdateAvailable(latest *releaseInfo) bool {
 }
 
 func getBranchCommitSHA(branch string) (string, error) {
-	client := getResilientClient()
-	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, branch))
+	data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, branch))
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
 
 	var commit struct {
 		SHA string `json:"sha"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&commit); err != nil {
+	if err := json.Unmarshal(data, &commit); err != nil {
 		return "", err
 	}
 	return commit.SHA, nil
@@ -314,15 +333,12 @@ func performBinaryUpdate(latest *releaseInfo) error {
 
 	if verbose {
 		fmt.Printf("Downloading %s...\n", targetAsset)
-	} else {
-		// Silent
 	}
 
-	resp, err := http.Get(downloadURL)
+	data, err := fetchWithFallback(downloadURL)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 
 	tmpFile, err := os.CreateTemp("", "vibeaura-update-*")
 	if err != nil {
@@ -330,7 +346,7 @@ func performBinaryUpdate(latest *releaseInfo) error {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	if _, err := tmpFile.Write(data); err != nil {
 		return err
 	}
 	tmpFile.Close()
