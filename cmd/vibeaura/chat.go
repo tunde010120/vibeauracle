@@ -308,10 +308,16 @@ func (m *model) applySuggestion() {
 	
 	val := m.textarea.Value()
 	words := strings.Fields(val)
+	
+	suggestion := m.suggestions[m.suggestionIdx]
+	// Avoid doubling trigger characters (e.g. //help or ##file)
+	trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
+	replacement := m.triggerChar + trimmed
+
 	if len(words) == 0 {
-		m.textarea.SetValue(m.suggestions[m.suggestionIdx] + " ")
+		m.textarea.SetValue(replacement + " ")
 	} else {
-		words[len(words)-1] = m.triggerChar + m.suggestions[m.suggestionIdx]
+		words[len(words)-1] = replacement
 		m.textarea.SetValue(strings.Join(words, " ") + " ")
 	}
 	m.textarea.SetCursor(len(m.textarea.Value()))
