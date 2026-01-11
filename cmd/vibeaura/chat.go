@@ -198,7 +198,7 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		snapshot, _ := m.brain.GetSnapshot()
 		m.messages = append(m.messages, systemStyle.Render(" CWD ") + " " + helpStyle.Render(snapshot.WorkingDir))
 	case "/version":
-		m.messages = append(m.messages, systemStyle.Render(" VERSION ") + " " + helpStyle.Render(Version+" ("+Commit+")"))
+		m.messages = append(m.messages, systemStyle.Render(" VERSION ") + "\n" + helpStyle.Render(fmt.Sprintf("App: %s\nCommit: %s\nCompiler: %s", Version, Commit, runtime.Version())))
 	case "/clear":
 		m.messages = []string{}
 		m.viewport.SetContent(systemStyle.Render(" Session Cleared "))

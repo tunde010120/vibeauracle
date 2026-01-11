@@ -21,6 +21,11 @@ var (
 func init() {
 	// Try to populate Version and Commit from build info if they are defaults
 	if info, ok := debug.ReadBuildInfo(); ok {
+		// If Version is still the default "dev", try to get it from the build info (e.g. go install)
+		if Version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			Version = info.Main.Version
+		}
+
 		for _, setting := range info.Settings {
 			switch setting.Key {
 			case "vcs.revision":

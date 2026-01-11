@@ -12,10 +12,10 @@ var versionCmd = &cobra.Command{
 	Short: "Print detailed version information",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("vibeaura %s\n", Version)
-		fmt.Printf("  Commit:     %s\n", Commit)
-		fmt.Printf("  Build Date: %s\n", BuildDate)
-		fmt.Printf("  OS/Arch:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("  Go Version: %s\n", runtime.Version())
+		fmt.Printf("  Commit:      %s\n", Commit)
+		fmt.Printf("  Build Date:  %s\n", BuildDate)
+		fmt.Printf("  Platform:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("  Compiler:    %s\n", runtime.Version())
 	},
 }
 
