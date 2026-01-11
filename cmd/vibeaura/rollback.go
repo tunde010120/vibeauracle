@@ -88,8 +88,19 @@ func rollbackBinary(target string) error {
 		return err
 	}
 
+	// Disable auto-update after rollback
+	cm, _ := sys.NewConfigManager()
+	if cfg, err := cm.Load(); err == nil {
+		cfg.Update.AutoUpdate = false
+		cm.Save(cfg)
+		fmt.Println("ℹ️  Automatic updates disabled. Run 'vibeaura update' manually to re-enable.")
+	}
+
 	fmt.Println("DONE")
-	restartSelf()
+	
+	// For rollbacks, we don't hand off the 'rollback' command (to avoid recursion).
+	// Instead, we implicitly hand off a 'version' command to the newly installed binary.
+	restartWithArgs([]string{"vibeaura", "version"})
 	return nil
 }
 
@@ -131,8 +142,16 @@ func rollbackFromSource(target string, cm *sys.ConfigManager) error {
 		return nil
 	}
 
+	// Disable auto-update after rollback
+	cfg.Update.AutoUpdate = false
+	cm.Save(cfg)
+	fmt.Println("ℹ️  Automatic updates disabled. Run 'vibeaura update' manually to re-enable.")
+
 	fmt.Println("DONE")
-	restartSelf()
+	
+	// For rollbacks, we don't hand off the 'rollback' command (to avoid recursion).
+	// Instead, we implicitly hand off a 'version' command to the newly installed binary.
+	restartWithArgs([]string{"vibeaura", "version"})
 	return nil
 }
 

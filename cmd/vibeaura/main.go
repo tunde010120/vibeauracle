@@ -59,9 +59,12 @@ var rootCmd = &cobra.Command{
 	Long: `vibeauracle is a keyboard-centric interface that unifies the terminal, 
 the IDE, and the AI assistant into a single system-aware experience.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Ensure the tool is installed in a standard system directory
+		ensureInstalled()
+
 		// Only check for updates on the root command or major interactive commands,
 		// and skip for the 'update' command itself to avoid double checks.
-		if cmd.CommandPath() != "vibeaura update" && cmd.CommandPath() != "vibeaura completion" {
+		if cmd.CommandPath() != "vibeaura update" && cmd.CommandPath() != "vibeaura completion" && cmd.CommandPath() != "vibeaura rollback" {
 			checkUpdateSilent()
 		}
 	},
@@ -156,7 +159,8 @@ var modelsListCmd = &cobra.Command{
 
 		fmt.Println("\033[1;36mAVAILABLE MODELS:\033[0m")
 		for _, d := range discoveries {
-			fmt.Printf("\033[32m•\033[0m \033[1m%-30s\033[0m \033[90m(%s)\033[0m\n", d.Name, d.Provider)
+			displayName := brain.ShortenModelName(d.Name)
+			fmt.Printf("\033[32m•\033[0m \033[1m%-30s\033[0m \033[90m(%s: %s)\033[0m\n", displayName, d.Provider, d.Name)
 		}
 		fmt.Println("\n\033[34mUse 'models use <provider> <model>' to switch.\033[0m")
 	},

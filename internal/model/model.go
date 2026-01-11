@@ -12,6 +12,11 @@ type Provider interface {
 	Name() string
 }
 
+// Pullable represents a provider that supports downloading models (like Ollama)
+type Pullable interface {
+	// PullModel is specific to providers that manage their own local models
+}
+
 type ProviderFactory func(config map[string]string) (Provider, error)
 
 var (

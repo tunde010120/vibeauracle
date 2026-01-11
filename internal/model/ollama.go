@@ -23,6 +23,26 @@ type OllamaProvider struct {
 
 func (p *OllamaProvider) Name() string { return "ollama" }
 
+// PullModel attempts to pull a model from the Ollama registry
+func (p *OllamaProvider) PullModel(ctx context.Context, name string, progress func(any)) error {
+	req := &api.PullRequest{
+		Model: name,
+	}
+
+	fn := func(resp api.ProgressResponse) error {
+		if progress != nil {
+			progress(resp)
+		}
+		return nil
+	}
+
+	err := p.client.Pull(ctx, req, fn)
+	if err != nil {
+		return fmt.Errorf("ollama pull: %w", err)
+	}
+	return nil
+}
+
 // NewOllamaProvider creates a new Ollama provider
 // host is the Ollama server URL (e.g., "http://localhost:11434")
 // modelName is the model to use (e.g., "llama3")

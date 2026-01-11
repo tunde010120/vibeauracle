@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -80,22 +81,63 @@ func (p *GithubProvider) ListModels(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("github models list failed: %s", resp.Status)
 	}
 
-	var data []struct {
-		Name string `json:"name"`
-		ID   string `json:"id"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
+	// GitHub Models API can return either a top-level array or an object with a "data" field (OpenAI style)
+	// We use a flexible map to decode first, then extract correctly.
+	var raw interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decoding github models: %w", err)
 	}
 
 	var models []string
-	for _, m := range data {
-		id := m.ID
-		if id == "" {
-			id = m.Name
+	
+	processEntry := func(m map[string]interface{}) {
+		id, _ := m["id"].(string)
+		name, _ := m["name"].(string)
+		
+		target := id
+		if target == "" {
+			target = name
 		}
-		models = append(models, id)
+
+		if target != "" {
+			// Filter for chat-friendly models if it's GitHub
+			isChat := strings.Contains(strings.ToLower(target), "gpt") || 
+				strings.Contains(strings.ToLower(target), "llama") || 
+				strings.Contains(strings.ToLower(target), "phi") || 
+				strings.Contains(strings.ToLower(target), "mistral") ||
+				strings.Contains(strings.ToLower(target), "codellama")
+			
+			if isChat {
+				models = append(models, target)
+			}
+		}
 	}
+
+	switch v := raw.(type) {
+	case []interface{}:
+		// Top-level array format
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				processEntry(m)
+			}
+		}
+	case map[string]interface{}:
+		// Object format (check for "data" field)
+		if data, ok := v["data"].([]interface{}); ok {
+			for _, item := range data {
+				if m, ok := item.(map[string]interface{}); ok {
+					processEntry(m)
+				}
+			}
+		} else {
+			// Maybe it's just a single object? (unlikely but safe)
+			processEntry(v)
+		}
+	}
+
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models found in github response")
+	}
+
 	return models, nil
 }

@@ -101,11 +101,94 @@ func fetchWithFallback(url string) ([]byte, error) {
 	return nil, err // Return original Go error if curl also fails or is missing
 }
 
+// gitLSDiscovery attempts to find tags or branch SHAs using 'git ls-remote'
+// to avoid GitHub API rate limits (which often lead to 403 Forbidden).
+func gitLSDiscovery(refType string) (map[string]string, error) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("git", "ls-remote", "--"+refType, "https://github.com/"+repo+".git")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	results := make(map[string]string)
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			sha := parts[0]
+			ref := parts[1]
+			
+			// refs/tags/v1.0.0 -> v1.0.0
+			// refs/heads/master -> master
+			refName := filepath.Base(ref)
+			results[refName] = sha
+		}
+	}
+	return results, nil
+}
+
 func getLatestRelease(channel string) (*releaseInfo, error) {
+	// Priority High: Try git ls-remote to find the tag name first. 
+	// This is very resilient to rate limits.
+	discoveredTags, _ := gitLSDiscovery("tags")
+	if discoveredTags != nil {
+		var bestTag string
+		// Search for 'latest' rolling tag or newest semver
+		if channel == "" || channel == "stable" {
+			if _, ok := discoveredTags["latest"]; ok {
+				bestTag = "latest"
+			} else {
+				// Find highest semver
+				for tag := range discoveredTags {
+					vTag := tag
+					if !strings.HasPrefix(vTag, "v") {
+						vTag = "v" + vTag
+					}
+					if semver.IsValid(vTag) && semver.Prerelease(vTag) == "" {
+						if bestTag == "" || semver.Compare(vTag, "v"+strings.TrimPrefix(bestTag, "v")) > 0 {
+							bestTag = tag
+						}
+					}
+				}
+			}
+		} else if channel != "" {
+			if _, ok := discoveredTags[channel]; ok {
+				bestTag = channel
+			}
+		}
+
+		if bestTag != "" {
+			// Now that we have a tag, we STILL want the full release info for assets
+			// but we can target the specific tag which is less likely to hit global 403s 
+			// compared to /releases/latest.
+			data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, bestTag))
+			if err == nil {
+				var latest releaseInfo
+				if err := json.Unmarshal(data, &latest); err == nil && latest.TagName != "" {
+					populateActualSHA(&latest)
+					return &latest, nil
+				}
+			}
+			
+			// If API still fails, we can synthesize a releaseInfo if we really want to,
+			// but let's see if we can just return it.
+			synthesized := &releaseInfo{
+				TagName:   bestTag,
+				ActualSHA: discoveredTags[bestTag],
+			}
+			// Note: Assets will be empty, performBinaryUpdate will need to handle this.
+			return synthesized, nil
+		}
+	}
+
 	var data []byte
 	var err error
 
-	// If no specific channel is requested, use the standard GitHub 'latest' endpoint
+	// Fallback Strategy: Original API-based discovery
 	if channel == "" {
 		data, err = fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
 		if err == nil {
@@ -197,6 +280,11 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 }
 
 func populateActualSHA(latest *releaseInfo) {
+	// If it already has one from gitLSDiscovery, we're good
+	if latest.ActualSHA != "" {
+		return
+	}
+
 	// Try to fetch metadata.json from assets for precise versioning
 	for _, asset := range latest.Assets {
 		if asset.Name == "metadata.json" {
@@ -211,7 +299,16 @@ func populateActualSHA(latest *releaseInfo) {
 		}
 	}
 
-	// Fallback to tag-based SHA resolution if metadata.json is missing
+	// Fallback to git ls-remote for tag-based SHA resolution (bypasses API)
+	discovered, err := gitLSDiscovery("tags")
+	if err == nil {
+		if sha, ok := discovered[latest.TagName]; ok {
+			latest.ActualSHA = sha
+			return
+		}
+	}
+
+	// Last resort: GitHub API
 	tagData, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/git/ref/tags/%s", repo, latest.TagName))
 	if err == nil {
 		var tagInfo struct {
@@ -267,6 +364,14 @@ func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 }
 
 func getBranchCommitSHA(branch string) (string, error) {
+	// Try git ls-remote first
+	discovered, err := gitLSDiscovery("heads")
+	if err == nil {
+		if sha, ok := discovered[branch]; ok {
+			return sha, nil
+		}
+	}
+
 	data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, branch))
 	if err != nil {
 		return "", err
@@ -435,6 +540,11 @@ func performBinaryUpdate(latest *releaseInfo) error {
 		}
 	}
 
+	// Fallback for synthesized releaseInfo (from git ls-remote) where assets are not populated
+	if downloadURL == "" && latest.TagName != "" {
+		downloadURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, latest.TagName, targetAsset)
+	}
+
 	if downloadURL == "" {
 		return fmt.Errorf("no binary for %s/%s", goos, goarch)
 	}
@@ -459,97 +569,362 @@ func performBinaryUpdate(latest *releaseInfo) error {
 	}
 	tmpFile.Close()
 
-	return installBinary(tmpFile.Name())
+	exePath, _ := os.Executable()
+	return installBinary(tmpFile.Name(), exePath)
 }
 
-func installBinary(srcPath string) error {
+func installBinary(srcPath, dstPath string) error {
 	cm, _ := sys.NewConfigManager()
 	cfg, _ := cm.Load()
 	verbose := cfg.Update.Verbose
 
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("getting executable path: %w", err)
-	}
-
 	if verbose {
-		fmt.Println("Installing binary...")
+		fmt.Printf("Installing binary to %s...\n", dstPath)
 	}
-	
+
+	// Ensure the destination directory exists
+	dstDir := filepath.Dir(dstPath)
+	if _, err := os.Stat(dstDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dstDir, 0755); err != nil {
+			// If we can't create the directory, we might need sudo later
+		}
+	}
+
 	// Ensure the new binary is executable
-	if err := os.Chmod(srcPath, 0755); err != nil {
-		return fmt.Errorf("setting permissions on new binary: %w", err)
+	os.Chmod(srcPath, 0755)
+
+	// Determine if we need sudo based on path and permissions
+	needsSudo := false
+	home, _ := os.UserHomeDir()
+	
+	if (runtime.GOOS == "linux" || runtime.GOOS == "darwin") && os.Geteuid() != 0 {
+		// If it's in the home directory, we should ALMOST certainly not need sudo.
+		// We only check if it's NOT in home, or if we explicitly can't write to it.
+		if !strings.HasPrefix(dstPath, home) {
+			// Check if we can write to the directory
+			testPath := filepath.Join(dstDir, ".vibe-perm-test")
+			if f, err := os.OpenFile(testPath, os.O_CREATE|os.O_WRONLY, 0644); err != nil {
+				needsSudo = true
+			} else {
+				f.Close()
+				os.Remove(testPath)
+				// Also check if we can write to the file itself if it exists
+				if _, err := os.Stat(dstPath); err == nil {
+					if f, err := os.OpenFile(dstPath, os.O_WRONLY, 0); err != nil {
+						needsSudo = true
+					} else {
+						f.Close()
+					}
+				}
+			}
+		}
 	}
 
-	// Move temp file to current executable path
-	if err := os.Rename(srcPath, exePath); err != nil {
-		if runtime.GOOS == "windows" {
-			return fmt.Errorf("could not replace running binary on Windows. Please download and install manually.")
-		}
+	goos, _ := getPlatform()
+	if goos == "android" {
+		needsSudo = false // No sudo on Termux usually
+	}
 
-		goos, _ := getPlatform()
-		if goos == "android" {
-			// On Termux, sudo is missing. Try a direct move as it should be in user home.
-			// If rename fails, it might be cross-device.
-			cpCmd := exec.Command("cp", srcPath, exePath)
-			if err := cpCmd.Run(); err != nil {
-				return fmt.Errorf("replacing binary on Android: %w", err)
-			}
-			return nil
-		}
-
-		// If rename fails (e.g. permission denied or cross-device), try sudo mv
+	if needsSudo {
 		if verbose {
-			fmt.Println("Permission denied or cross-device move. Trying with sudo...")
+			fmt.Printf("Permission denied or busy. Trying with sudo to install to %s...\n", dstPath)
 		} else {
 			fmt.Print("🔒  Elevating for installation... ")
 		}
+
+		// Use 'rm -f' first to avoid ETXTBSY (Text file busy)
+		// Unlinking the file allows a new file to be created at the same path
+		exec.Command("sudo", "rm", "-f", dstPath).Run()
 		
-		sudoCmd := exec.Command("sudo", "mv", srcPath, exePath)
-		sudoCmd.Stdout = os.Stdout
-		sudoCmd.Stderr = os.Stderr
-		sudoCmd.Stdin = os.Stdin // For password prompt
-		
-		if err := sudoCmd.Run(); err != nil {
+		sudoCp := exec.Command("sudo", "cp", srcPath, dstPath)
+		sudoCp.Stdout = os.Stdout
+		sudoCp.Stderr = os.Stderr
+		sudoCp.Stdin = os.Stdin
+		if err := sudoCp.Run(); err != nil {
 			if !verbose {
 				fmt.Println("FAILED")
 			}
 			return fmt.Errorf("replacing binary with sudo: %w", err)
 		}
+		
+		exec.Command("sudo", "chmod", "+x", dstPath).Run()
 		if !verbose {
 			fmt.Println("DONE")
 		}
+		return nil
 	}
 
-	// Ensure the final binary is executable
-	if runtime.GOOS != "windows" {
-		if err := os.Chmod(exePath, 0755); err != nil {
-			exec.Command("sudo", "chmod", "+x", exePath).Run()
+	// Normal installation (no sudo)
+	// Try removing first to avoid ETXTBSY. On Windows, we rename the running file out of the way.
+	if runtime.GOOS == "windows" {
+		if _, err := os.Stat(dstPath); err == nil {
+			oldPath := dstPath + ".old"
+			os.Remove(oldPath) // Remove any previous leftovers
+			if err := os.Rename(dstPath, oldPath); err != nil {
+				return fmt.Errorf("could not move existing binary on Windows: %w", err)
+			}
+			// We can't delete it while running, but it's now out of the way for the new one.
 		}
+	} else {
+		os.Remove(dstPath)
+		// If it was busy, remove might fail. Rename it out of the way.
+		if _, err := os.Stat(dstPath); err == nil {
+			oldPath := dstPath + ".old"
+			os.Remove(oldPath)
+			if err := os.Rename(dstPath, oldPath); err != nil {
+				// If rename fails, we might still have issues, but let's try copy
+			} else {
+				defer os.Remove(oldPath)
+			}
+		}
+	}
+
+	// Copy the file
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return fmt.Errorf("opening destination binary: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return fmt.Errorf("copying binary: %w", err)
 	}
 
 	return nil
 }
 
-// restartSelf replaces the current process with the newly installed binary
+// restartSelf replaces the current process with the newly installed binary.
+// It preserves the original command and environment.
 func restartSelf() {
+	restartWithArgs(os.Args)
+}
+
+// restartWithArgs replaces the current process with the newly installed binary
+// using the provided arguments.
+func restartWithArgs(args []string) {
 	if runtime.GOOS == "windows" {
-		fmt.Println("\n✅ Update complete. Please restart vibeaura.")
+		fmt.Println("\n✅ Operation complete. Please restart vibeaura.")
 		os.Exit(0)
 	}
 
 	exe, err := os.Executable()
-	if err != nil {
+	if err == nil {
+		// Try to use the standard go bin path if it exists to be safe
+		home, _ := os.UserHomeDir()
+		goBinPath := filepath.Join(home, "go", "bin", "vibeaura")
+		if _, statErr := os.Stat(goBinPath); statErr == nil {
+			exe = goBinPath
+		}
+	} else {
 		fmt.Printf("Error getting executable path for restart: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Hand off to the new binary while preserving environment and arguments
-	err = syscall.Exec(exe, os.Args, os.Environ())
+	// Hand off to the new binary while preserving environment and target arguments
+	err = syscall.Exec(exe, args, os.Environ())
 	if err != nil {
 		fmt.Printf("Error handing off to new binary: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func getGoBin() string {
+	if gobin := os.Getenv("GOBIN"); gobin != "" {
+		return gobin
+	}
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		paths := filepath.SplitList(gopath)
+		if len(paths) > 0 && paths[0] != "" {
+			return filepath.Join(paths[0], "bin")
+		}
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "go", "bin")
+}
+
+// ensureInstalled checks if the binary is running from the universal system path (~/go/bin).
+// If it isn't, it performs an automatic installation to that location, adds it to the PATH,
+// and removes any conflicting binaries from other system directories.
+func ensureInstalled() {
+	// Skip for dev builds to avoid disrupting local development
+	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
+		return
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+
+	// Follow symlinks to get the real path
+	realExe, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		realExe = exe
+	}
+
+	goBin := getGoBin()
+	targetPath := filepath.Join(goBin, "vibeaura")
+	home, _ := os.UserHomeDir()
+	
+	if runtime.GOOS == "windows" {
+		targetPath += ".exe"
+		// Clean up any .old file from a previous update on Windows
+		os.Remove(targetPath + ".old")
+	}
+
+	// 1. Ensure target directory exists
+	if _, err := os.Stat(goBin); os.IsNotExist(err) {
+		os.MkdirAll(goBin, 0755)
+	}
+
+	migrated := false
+	// 2. If we are NOT running from the target path, we need to move there
+	if realExe != targetPath {
+		fmt.Printf("🏠  %s migrating to universal path (%s)...\n",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Render("vibeaura"),
+			targetPath,
+		)
+		
+		if err := installBinary(realExe, targetPath); err != nil {
+			fmt.Printf("❌  Failed to install to universal path: %v\n", err)
+		} else {
+			migrated = true
+		}
+	}
+
+	// 3. Remove conflicting binaries from the PATH that might shadow us
+	// We only touch user-writable paths (like within HOME) to avoid sudo prompts.
+	locations := getAllBinaryLocations()
+	removedAny := false
+	for _, loc := range locations {
+		// Don't delete the version we just installed, and don't delete the currently running binary
+		if loc != targetPath && loc != realExe && !sameFile(loc, targetPath) && !sameFile(loc, realExe) {
+			if strings.HasPrefix(loc, home) {
+				if err := os.Remove(loc); err == nil {
+					removedAny = true
+				}
+			}
+		}
+	}
+
+	// 4. Ensure goBin is in system PATH (shell profiles)
+	updatedPath := ensureGoBinInPath(goBin)
+
+	// 5. If we migrated or cleaned up, we should ideally hand off to the target process
+	if migrated || removedAny || updatedPath {
+		if migrated {
+			styleSuccess := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+			fmt.Println(styleSuccess.Render("✅  Universal environment setup complete."))
+			
+			if runtime.GOOS == "windows" {
+				fmt.Println("\n👉 Since you are on Windows, please close this window and run 'vibeaura' from a new terminal.")
+				fmt.Println("Press Enter to exit...")
+				var dummy string
+				fmt.Scanln(&dummy)
+				os.Exit(0)
+			}
+			restartWithArgs(os.Args)
+		}
+	}
+}
+
+func getAllBinaryLocations() []string {
+	var locations []string
+	
+	// Only rely on 'which -a' to find what's actually in the PATH.
+	// This is the only thing that causes conflicts.
+	cmd := exec.Command("which", "-a", "vibeaura")
+	out, _ := cmd.Output()
+	for _, line := range strings.Split(string(out), "\n") {
+		path := strings.TrimSpace(line)
+		if path != "" {
+			if abs, err := filepath.Abs(path); err == nil {
+				locations = append(locations, abs)
+			}
+		}
+	}
+	
+	// Filter unique locations
+	unique := make(map[string]bool)
+	var final []string
+	for _, loc := range locations {
+		if !unique[loc] {
+			unique[loc] = true
+			if _, err := os.Stat(loc); err == nil {
+				final = append(final, loc)
+			}
+		}
+	}
+	return final
+}
+
+func ensureGoBinInPath(goBin string) bool {
+	pathEnv := os.Getenv("PATH")
+	if strings.Contains(pathEnv, goBin) {
+		return false
+	}
+
+	home, _ := os.UserHomeDir()
+	
+	if runtime.GOOS == "windows" {
+		// On Windows, we use PowerShell to update the User PATH.
+		fmt.Printf("📝 Adding %s to your Windows User PATH...\n", goBin)
+		// We use a PowerShell snippet to safely append if not present
+		cmdStr := fmt.Sprintf(`$oldPath = [System.Environment]::GetEnvironmentVariable("Path", "User"); if ($oldPath -notlike "*%s*") { [System.Environment]::SetEnvironmentVariable("Path", "$oldPath;%s", "User") }`, goBin, goBin)
+		err := exec.Command("powershell", "-Command", cmdStr).Run()
+		if err != nil {
+			fmt.Printf("⚠️  Failed to update Windows PATH automatically: %v\n", err)
+			fmt.Printf("👉 Please manually add %s to your PATH.\n", goBin)
+			return false
+		}
+		return true
+	}
+
+	// Create common shell variable for standard Go Bin relative to home
+	tildaPath := "~/go/bin"
+	if !strings.HasPrefix(goBin, filepath.Join(home, "go", "bin")) {
+		// If it's not the standard path (e.g. custom GOPATH), use the absolute path
+		tildaPath = goBin
+	}
+
+	// We'll update both common shell profiles
+	configs := []string{".zshrc", ".bashrc", ".profile", ".bash_profile"}
+	
+	updated := false
+	for _, conf := range configs {
+		confPath := filepath.Join(home, conf)
+		if _, err := os.Stat(confPath); err == nil {
+			content, _ := os.ReadFile(confPath)
+			if !strings.Contains(string(content), "vibeaura") && !strings.Contains(string(content), goBin) {
+				f, err := os.OpenFile(confPath, os.O_APPEND|os.O_WRONLY, 0644)
+				if err == nil {
+					f.WriteString(fmt.Sprintf("\n# vibeaura universal path\nexport PATH=\"$PATH:%s\"\n", tildaPath))
+					f.Close()
+					updated = true
+				}
+			}
+		}
+	}
+
+	if updated {
+		fmt.Printf("📝 Added %s to PATH in shell profiles. Please restart your terminal or run: source ~/.zshrc (or your config)\n", tildaPath)
+	}
+	return updated
+}
+
+func sameFile(path1, path2 string) bool {
+	fi1, err1 := os.Stat(path1)
+	fi2, err2 := os.Stat(path2)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return os.SameFile(fi1, fi2)
 }
 
 func updateFromSource(branch string, cm *sys.ConfigManager) (bool, error) {
@@ -678,7 +1053,8 @@ func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager)
 					if !verbose {
 						fmt.Println("DONE")
 					}
-					if err := installBinary(buildOut); err != nil {
+					exePath, _ := os.Executable()
+					if err := installBinary(buildOut, exePath); err != nil {
 						return false, err
 					}
 					return true, nil
@@ -710,7 +1086,8 @@ func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager)
 		fmt.Println("DONE")
 	}
 
-	if err := installBinary(buildOut); err != nil {
+	exePath, _ := os.Executable()
+	if err := installBinary(buildOut, exePath); err != nil {
 		return false, err
 	}
 
@@ -733,6 +1110,16 @@ var updateCmd = &cobra.Command{
 		cfg, err := cm.Load()
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
+		}
+
+		// If auto-update was disabled (likely due to a rollback), re-enable it 
+		// now that the user is explicitly running a manual update.
+		if !cfg.Update.AutoUpdate {
+			cfg.Update.AutoUpdate = true
+			if err := cm.Save(cfg); err != nil {
+				return fmt.Errorf("re-enabling auto-update: %w", err)
+			}
+			fmt.Println("🔄  Manual update detected. Automatic updates have been re-enabled.")
 		}
 
 		useBeta := betaFlag || cfg.Update.Beta
@@ -869,6 +1256,11 @@ var updateCmd = &cobra.Command{
 			}
 		}
 
+		// Fallback for synthesized releaseInfo (from git ls-remote) where assets are not populated
+		if downloadURL == "" && latest.TagName != "" {
+			downloadURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, latest.TagName, targetAsset)
+		}
+
 		if downloadURL == "" {
 			return fmt.Errorf("could not find binary for %s/%s in release %s", goos, goarch, latest.TagName)
 		}
@@ -895,7 +1287,8 @@ var updateCmd = &cobra.Command{
 		}
 		tmpFile.Close()
 
-		if err := installBinary(tmpFile.Name()); err != nil {
+		exePath, _ := os.Executable()
+		if err := installBinary(tmpFile.Name(), exePath); err != nil {
 			return err
 		}
 

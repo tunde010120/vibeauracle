@@ -62,6 +62,10 @@ func New() *Brain {
 	// Initialize model provider based on config
 	b.initProvider()
 
+	// Proactive Autofix: If the configured model is missing or it's the first run,
+	// try to autodetect what's available on the system.
+	go b.autodetectBestModel()
+
 	fs := sys.NewLocalFS("")
 	registry := tooling.NewRegistry()
 	registry.Register(tooling.NewTraversalTool(fs))
@@ -75,6 +79,7 @@ func (b *Brain) initProvider() {
 	configMap := map[string]string{
 		"endpoint": b.config.Model.Endpoint,
 		"model":    b.config.Model.Name,
+		"base_url": b.config.Model.Endpoint, // Map endpoint to base_url for OpenAI/Others
 	}
 
 	// Fetch credentials from vault
@@ -111,6 +116,7 @@ func (b *Brain) DiscoverModels(ctx context.Context) ([]ModelDiscovery, error) {
 	for _, pName := range providersToCheck {
 		configMap := map[string]string{
 			"endpoint": b.config.Model.Endpoint,
+			"base_url": b.config.Model.Endpoint,
 		}
 
 		// Hydrate with credentials
@@ -231,6 +237,29 @@ User Request (Thread ID: %s):
 	}, nil
 }
 
+// PullModel requests a model download (currently only supported by Ollama)
+func (b *Brain) PullModel(ctx context.Context, name string) error {
+	// Re-initialize provider to ensure we have the latest endpoint
+	configMap := map[string]string{
+		"endpoint": b.config.Model.Endpoint,
+		"model":    name,
+	}
+	
+	p, err := model.GetProvider("ollama", configMap)
+	if err != nil {
+		return err
+	}
+
+	// Dynamic check for PullModel capability
+	if puller, ok := p.(interface {
+		PullModel(ctx context.Context, name string, cb func(any)) error
+	}); ok {
+		return puller.PullModel(ctx, name, nil)
+	}
+
+	return fmt.Errorf("provider '%s' does not support pulling models", p.Name())
+}
+
 // StoreState persists application state
 func (b *Brain) StoreState(id string, state interface{}) error {
 	return b.memory.SaveState(id, state)
@@ -277,6 +306,34 @@ func (b *Brain) StoreSecret(key, value string) error {
 		return fmt.Errorf("vault not initialized")
 	}
 	return b.vault.Set(key, value)
+}
+
+func (b *Brain) autodetectBestModel() {
+	// Only autodetect if we are using the default "llama3" which might not exist,
+	// or if the model name is empty/none.
+	if b.config.Model.Name != "llama3" && b.config.Model.Name != "" && b.config.Model.Name != "none" {
+		return
+	}
+
+	ctx := context.Background()
+	discoveries, err := b.DiscoverModels(ctx)
+	if err != nil || len(discoveries) == 0 {
+		return
+	}
+
+	// 1. Try to find if LLAMA-3 or 3.2 is actually there (better matching than just 'llama3')
+	for _, d := range discoveries {
+		name := strings.ToLower(d.Name)
+		if strings.Contains(name, "llama") || strings.Contains(name, "gpt-4o") || strings.Contains(name, "phi-3") {
+			b.SetModel(d.Provider, d.Name)
+			return
+		}
+	}
+
+	// 2. Fallback to the first available model from any provider
+	if len(discoveries) > 0 {
+		b.SetModel(discoveries[0].Provider, discoveries[0].Name)
+	}
 }
 
 // GetSecret retrieves a secret from the vault
