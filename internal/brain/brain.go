@@ -9,6 +9,7 @@ import (
 	"github.com/nathfavour/vibeauracle/model"
 	"github.com/nathfavour/vibeauracle/sys"
 	"github.com/nathfavour/vibeauracle/auth"
+	"github.com/nathfavour/vibeauracle/tooling"
 )
 
 // Request represents a user request or system trigger
@@ -25,12 +26,15 @@ type Response struct {
 
 // Brain is the cognitive orchestrator
 type Brain struct {
-	model   *model.Model
-	monitor *sys.Monitor
-	fs      sys.FS
-	config  *sys.Config
-	auth    *auth.Handler
-	memory  *vcontext.Memory
+	model    *model.Model
+	monitor  *sys.Monitor
+	fs       sys.FS
+	config   *sys.Config
+	auth     *auth.Handler
+	memory   *vcontext.Memory
+	tools    *tooling.Registry
+	security *tooling.SecurityGuard
+	sessions map[string]*tooling.Session
 }
 
 func New() *Brain {
@@ -46,13 +50,20 @@ func New() *Brain {
 		provider, _ = model.NewOllamaProvider(cfg.Model.Endpoint, cfg.Model.Name)
 	}
 
+	fs := sys.NewLocalFS("")
+	registry := tooling.NewRegistry()
+	registry.Register(tooling.NewTraversalTool(fs))
+
 	return &Brain{
-		model:   model.New(provider),
-		monitor: sys.NewMonitor(),
-		fs:      sys.NewLocalFS(""),
-		config:  cfg,
-		auth:    auth.NewHandler(),
-		memory:  vcontext.NewMemory(),
+		model:    model.New(provider),
+		monitor:  sys.NewMonitor(),
+		fs:       fs,
+		config:   cfg,
+		auth:     auth.NewHandler(),
+		memory:   vcontext.NewMemory(),
+		tools:    registry,
+		security: tooling.NewSecurityGuard(),
+		sessions: make(map[string]*tooling.Session),
 	}
 }
 
