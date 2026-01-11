@@ -39,6 +39,21 @@ func NewSecurityGuard() *SecurityGuard {
 	}
 }
 
+// SetAllowEnv allows or blocks access to environment/sensitive files for the current scope.
+func (s *SecurityGuard) SetAllowEnv(allow bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allowEnv = allow
+}
+
+// SetInterceptor installs a manual authorization hook.
+// The interceptor can return (false, *NeedsApprovalError) to request user input.
+func (s *SecurityGuard) SetInterceptor(fn func(tool Tool, args json.RawMessage) (bool, error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.interceptor = fn
+}
+
 // SetPermissionPolicy sets whether a specific permission is globally allowed or denied.
 func (s *SecurityGuard) SetPermissionPolicy(p Permission, allowed bool) {
 	s.mu.Lock()
