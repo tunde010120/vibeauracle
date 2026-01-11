@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/nathfavour/vibeauracle/sys"
 
 	"github.com/spf13/cobra"
@@ -108,50 +110,215 @@ func isUpdateAvailable(latest *releaseInfo) bool {
 	return true
 }
 
-// checkUpdateSilent checks for updates and prints a message if one is available
+func getBranchCommitSHA(branch string) (string, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, branch))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&commit); err != nil {
+		return "", err
+	}
+	return commit.SHA, nil
+}
+
+// checkUpdateSilent checks for updates and prints a message if one is available.
+// If auto-update is enabled, it attempts to update quietly.
 func checkUpdateSilent() {
-	// Don't show update notification for dev builds
-	if Version == "dev" {
+	cm, err := sys.NewConfigManager()
+	if err != nil {
+		return
+	}
+	cfg, err := cm.Load()
+	if err != nil {
 		return
 	}
 
-	latest, err := getLatestRelease()
-	if err != nil {
-		return // Fail silently for background checks
+	useBeta := cfg.Update.Beta
+	buildFromSource := cfg.Update.BuildFromSource || useBeta
+	autoUpdate := cfg.Update.AutoUpdate
+
+	var latestSHA string
+	var latestTag string
+	var channel string
+
+	if useBeta {
+		latestSHA, _ = getBranchCommitSHA("master")
+		latestTag = "beta"
+		channel = "Beta (master)"
+	} else if buildFromSource {
+		latestSHA, _ = getBranchCommitSHA("release")
+		latestTag = "source"
+		channel = "Source (release)"
+	} else {
+		latest, err := getLatestRelease()
+		if err != nil {
+			return
+		}
+		if !isUpdateAvailable(latest) {
+			return
+		}
+		latestSHA = latest.ActualSHA
+		latestTag = latest.TagName
+		channel = "Stable"
 	}
 
-	if isUpdateAvailable(latest) {
-		remoteSHA := latest.ActualSHA
-		if remoteSHA == "" {
-			remoteSHA = latest.TargetCommitish
-		}
-
-		fmt.Printf("\n✨ A new version of vibeaura is available: %s", latest.TagName)
-		if len(remoteSHA) >= 7 {
-			fmt.Printf(" (%s)", remoteSHA[:7])
-		} else if remoteSHA != "" {
-			fmt.Printf(" (%s)", remoteSHA)
-		}
-		fmt.Printf(" (current: %s", Version)
-		if Commit != "none" {
-			if len(Commit) >= 7 {
-				fmt.Printf("-%s", Commit[:7])
-			} else {
-				fmt.Printf("-%s", Commit)
+	if latestSHA != "" && latestSHA != Commit {
+		// Check if this commit has previously failed to build
+		for _, failed := range cfg.Update.FailedCommits {
+			if failed == latestSHA {
+				return // Don't nag or auto-update for a known failed commit
 			}
 		}
-		fmt.Println(")")
-		fmt.Println("👉 Run 'vibeaura update' to install it instantly.\n")
+
+		if autoUpdate {
+			// Perform quiet auto-update
+			if buildFromSource {
+				branch := "release"
+				if useBeta {
+					branch = "master"
+				}
+				// We run this in a way that doesn't block the main tool too much, 
+				// but since it's "integrated", we'll just run it.
+				// Note: installBinary might request sudo, which isn't exactly "quiet".
+				// But for many users (like in /usr/local/bin), they will see the sudo prompt.
+				err := updateFromSource(branch, cm)
+				if err != nil {
+					// Mark as failed so we don't try again
+					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
+					cm.Save(cfg)
+				}
+			} else {
+				// Stable binary update
+				latest, _ := getLatestRelease() // Re-fetch to get assets
+				if latest != nil {
+					err := performBinaryUpdate(latest)
+					if err != nil {
+						// Binary updates usually don't "fail" in the same way builds do,
+						// but we'll mark it anyway if it does.
+						cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
+						cm.Save(cfg)
+					}
+				}
+			}
+			return // After auto-update, no need to print notification
+		}
+
+		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)      // Bright Green
+		styleChannel := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Italic(true) // Bright Blue
+		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)      // Bright Yellow
+		styleDim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))                  // Gray
+
+		displayLatestSHA := latestSHA
+		if len(displayLatestSHA) >= 7 {
+			displayLatestSHA = displayLatestSHA[:7]
+		}
+
+		displayCurCommit := Commit
+		if len(displayCurCommit) >= 7 {
+			displayCurCommit = displayCurCommit[:7]
+		}
+
+		fmt.Println()
+		fmt.Printf("✨ %s %s %s\n",
+			styleNew.Render("A new update is available on the"),
+			styleChannel.Render(channel),
+			styleNew.Render("channel!"),
+		)
+		fmt.Printf("   %s %s (%s) %s %s\n",
+			styleDim.Render("Latest:"), displayLatestSHA, latestTag,
+			styleDim.Render("Current:"), displayCurCommit,
+		)
+		fmt.Printf("   👉 Run %s %s\n",
+			styleCmd.Render("vibeaura update"),
+			styleDim.Render("to stay on the bleeding edge."),
+		)
+		fmt.Println()
 	}
 }
 
+func getPlatform() (string, string) {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+
+	// Termux/Android detection
+	if goos == "linux" {
+		if _, err := os.Stat("/data/data/com.termux/files/usr/bin/bash"); err == nil || os.Getenv("TERMUX_VERSION") != "" {
+			goos = "android"
+		}
+	}
+
+	return goos, goarch
+}
+
+func performBinaryUpdate(latest *releaseInfo) error {
+	cm, _ := sys.NewConfigManager()
+	cfg, _ := cm.Load()
+	verbose := cfg.Update.Verbose
+
+	// Determine target asset name
+	goos, goarch := getPlatform()
+	targetAsset := fmt.Sprintf("vibeaura-%s-%s", goos, goarch)
+	if goos == "windows" {
+		targetAsset += ".exe"
+	}
+
+	var downloadURL string
+	for _, asset := range latest.Assets {
+		if asset.Name == targetAsset {
+			downloadURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no binary for %s/%s", goos, goarch)
+	}
+
+	if verbose {
+		fmt.Printf("Downloading %s...\n", targetAsset)
+	} else {
+		// Silent
+	}
+
+	resp, err := http.Get(downloadURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	tmpFile, err := os.CreateTemp("", "vibeaura-update-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return err
+	}
+	tmpFile.Close()
+
+	return installBinary(tmpFile.Name())
+}
+
 func installBinary(srcPath string) error {
+	cm, _ := sys.NewConfigManager()
+	cfg, _ := cm.Load()
+	verbose := cfg.Update.Verbose
+
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("getting executable path: %w", err)
 	}
 
-	fmt.Println("Installing binary...")
+	if verbose {
+		fmt.Println("Installing binary...")
+	}
 	
 	// Ensure the new binary is executable
 	if err := os.Chmod(srcPath, 0755); err != nil {
@@ -164,8 +331,23 @@ func installBinary(srcPath string) error {
 			return fmt.Errorf("could not replace running binary on Windows. Please download and install manually.")
 		}
 
+		goos, _ := getPlatform()
+		if goos == "android" {
+			// On Termux, sudo is missing. Try a direct move as it should be in user home.
+			// If rename fails, it might be cross-device.
+			cpCmd := exec.Command("cp", srcPath, exePath)
+			if err := cpCmd.Run(); err != nil {
+				return fmt.Errorf("replacing binary on Android: %w", err)
+			}
+			return nil
+		}
+
 		// If rename fails (e.g. permission denied or cross-device), try sudo mv
-		fmt.Println("Permission denied or cross-device move. Trying with sudo...")
+		if verbose {
+			fmt.Println("Permission denied or cross-device move. Trying with sudo...")
+		} else {
+			fmt.Print("🔒  Elevating for installation... ")
+		}
 		
 		sudoCmd := exec.Command("sudo", "mv", srcPath, exePath)
 		sudoCmd.Stdout = os.Stdout
@@ -173,7 +355,13 @@ func installBinary(srcPath string) error {
 		sudoCmd.Stdin = os.Stdin // For password prompt
 		
 		if err := sudoCmd.Run(); err != nil {
+			if !verbose {
+				fmt.Println("FAILED")
+			}
 			return fmt.Errorf("replacing binary with sudo: %w", err)
+		}
+		if !verbose {
+			fmt.Println("DONE")
 		}
 	}
 
@@ -188,6 +376,9 @@ func installBinary(srcPath string) error {
 }
 
 func updateFromSource(branch string, cm *sys.ConfigManager) error {
+	cfg, _ := cm.Load()
+	verbose := cfg.Update.Verbose
+
 	// Check if Go is installed
 	if _, err := exec.LookPath("go"); err != nil {
 		return fmt.Errorf("Go is not installed. Source build requires Go.")
@@ -203,41 +394,104 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 	}
 
 	if _, err := os.Stat(filepath.Join(sourceRoot, ".git")); os.IsNotExist(err) {
-		fmt.Printf("Cloning %s branch to %s...\n", branch, sourceRoot)
+		if verbose {
+			fmt.Printf("Cloning %s branch to %s...\n", branch, sourceRoot)
+		}
 		cloneCmd := exec.Command("git", "clone", "-b", branch, "https://github.com/"+repo+".git", sourceRoot)
-		cloneCmd.Stdout = os.Stdout
-		cloneCmd.Stderr = os.Stderr
+		if verbose {
+			cloneCmd.Stdout = os.Stdout
+			cloneCmd.Stderr = os.Stderr
+		}
 		if err := cloneCmd.Run(); err != nil {
 			os.RemoveAll(sourceRoot)
 			return fmt.Errorf("cloning repo: %w", err)
 		}
 	} else {
-		fmt.Printf("Updating local source in %s...\n", sourceRoot)
+		if verbose {
+			fmt.Printf("Fetching updates for %s...\n", branch)
+		}
+		fetchCmd := exec.Command("git", "-C", sourceRoot, "fetch", "origin", branch)
+		if err := fetchCmd.Run(); err != nil {
+			return fmt.Errorf("fetching updates: %w", err)
+		}
+
+		// Get remote SHA
+		remoteCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "origin/"+branch)
+		remoteSHABytes, err := remoteCmd.Output()
+		if err != nil {
+			return fmt.Errorf("getting remote SHA: %w", err)
+		}
+		remoteSHA := strings.TrimSpace(string(remoteSHABytes))
+
+		if remoteSHA == Commit && Version != "dev" {
+			return nil
+		}
+
+		// Check if this commit previously failed
+		for _, failed := range cfg.Update.FailedCommits {
+			if failed == remoteSHA {
+				return nil
+			}
+		}
+
+		if verbose {
+			fmt.Printf("Updating local source in %s...\n", sourceRoot)
+		}
 		pullCmd := exec.Command("git", "-C", sourceRoot, "pull", "origin", branch)
-		pullCmd.Stdout = os.Stdout
-		pullCmd.Stderr = os.Stderr
+		if verbose {
+			pullCmd.Stdout = os.Stdout
+			pullCmd.Stderr = os.Stderr
+		}
 		if err := pullCmd.Run(); err != nil {
 			return fmt.Errorf("pulling updates: %w", err)
 		}
 	}
 
-	fmt.Println("Building from source...")
+	if verbose {
+		fmt.Println("Building from source...")
+	}
+	
+	// Get current commit SHA for the local build
+	commitCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "HEAD")
+	commitSHABytes, _ := commitCmd.Output()
+	localCommit := strings.TrimSpace(string(commitSHABytes))
+	
+	buildDate := time.Now().UTC().Format(time.RFC3339)
+	ldflags := fmt.Sprintf("-s -w -X main.Version=%s -X main.Commit=%s -X main.BuildDate=%s", branch, localCommit, buildDate)
+
 	buildOut := filepath.Join(sourceRoot, "vibeaura_new")
-	buildCmd := exec.Command("go", "build", "-o", buildOut, "./cmd/vibeaura")
+	buildCmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", buildOut, "./cmd/vibeaura")
 	buildCmd.Dir = sourceRoot
-	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = os.Stderr
+	if verbose {
+		buildCmd.Stdout = os.Stdout
+		buildCmd.Stderr = os.Stderr
+	}
 	
 	if err := buildCmd.Run(); err != nil {
-		fmt.Println("\n❌ Build failed! The beta version might be unstable.")
+		if verbose {
+			fmt.Println("\n❌ Build failed! The beta version might be unstable.")
+		}
+		// Quietly mark this commit as failed if possible
+		commitCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "HEAD")
+		if out, err := commitCmd.Output(); err == nil {
+			failedSHA := strings.TrimSpace(string(out))
+			cfg, err := cm.Load()
+			if err == nil {
+				cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, failedSHA)
+				cm.Save(cfg)
+			}
+		}
 		return fmt.Errorf("building from source: %w", err)
+	}
+
+	if !verbose {
+		fmt.Println("DONE")
 	}
 
 	if err := installBinary(buildOut); err != nil {
 		return err
 	}
 
-	fmt.Printf("Successfully updated to bleeding-edge %s from source!\n", branch)
 	return nil
 }
 
@@ -260,22 +514,46 @@ var updateCmd = &cobra.Command{
 
 		useBeta := betaFlag || cfg.Update.Beta
 		buildFromSource := cfg.Update.BuildFromSource || useBeta
+		verbose := cfg.Update.Verbose
 
 		curCommit := Commit
 		if len(curCommit) > 7 {
 			curCommit = curCommit[:7]
 		}
-		fmt.Printf("Current version: %s (commit: %s)\n", Version, curCommit)
+		
+		if verbose {
+			fmt.Printf("Current version: %s (commit: %s)\n", Version, curCommit)
+		}
 
 		if buildFromSource {
 			branch := "release"
 			if useBeta {
 				branch = "master"
-				fmt.Println("🚀 Entering Beta Mode: Building bleeding-edge from master...")
-			} else {
-				fmt.Println("🛠️ Building from source (release branch)...")
 			}
-			return updateFromSource(branch, cm)
+			
+			if !verbose {
+				fmt.Printf("🔄  Updating to %s... ", branch)
+			} else {
+				if useBeta {
+					fmt.Println("🚀 Entering Beta Mode: Building bleeding-edge from master...")
+				} else {
+					fmt.Println("🛠️ Building from source (release branch)...")
+				}
+			}
+			
+			err := updateFromSource(branch, cm)
+			if err != nil {
+				if !verbose {
+					fmt.Println("FAILED")
+				}
+				return err
+			}
+			if !verbose {
+				fmt.Println("DONE")
+			} else {
+				fmt.Printf("Successfully updated to bleeding-edge %s from source!\n", branch)
+			}
+			return nil
 		}
 
 		fmt.Println("Checking for updates...")
@@ -293,6 +571,15 @@ var updateCmd = &cobra.Command{
 		if remoteVer == "" {
 			remoteVer = latest.TargetCommitish
 		}
+
+		// Check if this commit has previously failed
+		for _, failed := range cfg.Update.FailedCommits {
+			if failed == remoteVer {
+				fmt.Printf("\n⚠️ The latest version (%s) has previously failed to install/build and is likely unstable.\n", remoteVer[:7])
+				fmt.Println("👉 Use '--beta' or '--source' flags to force a retry if you've fixed the issue.")
+				return nil
+			}
+		}
 		
 		displaySHA := remoteVer
 		if len(displaySHA) > 7 {
@@ -301,11 +588,8 @@ var updateCmd = &cobra.Command{
 
 		fmt.Printf("New version available: %s (commit: %s)\n", latest.TagName, displaySHA)
 
-		// ... (rest of the download/install logic)
-
 		// Determine target asset name
-		goos := runtime.GOOS
-		goarch := runtime.GOARCH
+		goos, goarch := getPlatform()
 		targetAsset := fmt.Sprintf("vibeaura-%s-%s", goos, goarch)
 		if goos == "windows" {
 			targetAsset += ".exe"
@@ -323,7 +607,9 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("could not find binary for %s/%s in release %s", goos, goarch, latest.TagName)
 		}
 
-		fmt.Printf("Downloading %s...\n", targetAsset)
+		if verbose {
+			fmt.Printf("Downloading %s...\n", targetAsset)
+		}
 		
 		// Download to temp file
 		tmpFile, err := os.CreateTemp("", "vibeaura-update-*")
@@ -347,7 +633,11 @@ var updateCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Successfully updated to %s!\n", latest.TagName)
+		if verbose {
+			fmt.Printf("Successfully updated to %s!\n", latest.TagName)
+		} else {
+			fmt.Println("DONE")
+		}
 		return nil
 	},
 }

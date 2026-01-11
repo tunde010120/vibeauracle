@@ -2,18 +2,20 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/spf13/cobra"
 )
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version number of vibeaura",
+	Short: "Print detailed version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("vibeaura version %s\n", Version)
-		if Commit != "none" {
-			fmt.Printf("commit: %s\n", Commit)
-		}
+		fmt.Printf("vibeaura %s\n", Version)
+		fmt.Printf("  Commit:     %s\n", Commit)
+		fmt.Printf("  Build Date: %s\n", BuildDate)
+		fmt.Printf("  OS/Arch:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("  Go Version: %s\n", runtime.Version())
 	},
 }
 

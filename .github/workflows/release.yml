@@ -64,14 +64,16 @@ jobs:
 
             VERSION=${{ github.ref_name == 'release' && 'latest' || github.ref_name }}
             COMMIT=${{ github.sha }}
-            echo "Building for $GOOS/$GOARCH (version $VERSION, commit $COMMIT)..."
-            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.Version=$VERSION -X main.Commit=$COMMIT" -trimpath -o "dist/$output_name" ./cmd/vibeaura
+            BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            echo "Building for $GOOS/$GOARCH (version $VERSION, commit $COMMIT, date $BUILD_DATE)..."
+            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w -X main.Version=$VERSION -X main.Commit=$COMMIT -X main.BuildDate=$BUILD_DATE" -trimpath -o "dist/$output_name" ./cmd/vibeaura
           done
 
           # Generate metadata.json
           VERSION=${{ github.ref_name == 'release' && 'latest' || github.ref_name }}
           COMMIT=${{ github.sha }}
-          echo "{\"version\": \"$VERSION\", \"commit\": \"$COMMIT\", \"date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > dist/metadata.json
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "{\"version\": \"$VERSION\", \"commit\": \"$COMMIT\", \"date\": \"$BUILD_DATE\"}" > dist/metadata.json
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

@@ -10,6 +10,7 @@ use (
 	./internal/mcp
 	./internal/model
 	./internal/sys
+	./internal/tooling
 	./internal/vault
 	./pkg/vibe
 	./vibes/hello-world

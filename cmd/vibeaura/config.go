@@ -19,6 +19,8 @@ If both key and value are provided, it updates the setting.
 Keys:
   update.beta             Enable/disable beta updates (build from master)
   update.build_from_source  Enable/disable building from source for all updates
+  update.auto_update      Enable/disable automatic updates (default: true)
+  update.verbose          Show detailed output during updates (default: false)
   model.provider          AI provider (ollama, openai)
   model.name              AI model name
   model.endpoint          AI provider endpoint`,
@@ -36,6 +38,8 @@ Keys:
 			fmt.Printf("Current Configuration:\n")
 			fmt.Printf("  update.beta:             %v\n", cfg.Update.Beta)
 			fmt.Printf("  update.build_from_source: %v\n", cfg.Update.BuildFromSource)
+			fmt.Printf("  update.auto_update:      %v\n", cfg.Update.AutoUpdate)
+			fmt.Printf("  update.verbose:          %v\n", cfg.Update.Verbose)
 			fmt.Printf("  model.provider:          %s\n", cfg.Model.Provider)
 			fmt.Printf("  model.name:              %s\n", cfg.Model.Name)
 			fmt.Printf("  model.endpoint:          %s\n", cfg.Model.Endpoint)
@@ -50,6 +54,10 @@ Keys:
 				fmt.Println(cfg.Update.Beta)
 			case "update.build_from_source":
 				fmt.Println(cfg.Update.BuildFromSource)
+			case "update.auto_update":
+				fmt.Println(cfg.Update.AutoUpdate)
+			case "update.verbose":
+				fmt.Println(cfg.Update.Verbose)
 			case "model.provider":
 				fmt.Println(cfg.Model.Provider)
 			case "model.name":
@@ -78,6 +86,18 @@ Keys:
 				return fmt.Errorf("invalid boolean value for %s: %s", key, value)
 			}
 			cfg.Update.BuildFromSource = b
+		case "update.auto_update":
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value for %s: %s", key, value)
+			}
+			cfg.Update.AutoUpdate = b
+		case "update.verbose":
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value for %s: %s", key, value)
+			}
+			cfg.Update.Verbose = b
 		case "model.provider":
 			cfg.Model.Provider = value
 		case "model.name":

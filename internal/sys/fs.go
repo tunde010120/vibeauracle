@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,25 @@ type FS interface {
 	WriteFile(path string, content []byte) error
 	DeleteFile(path string) error
 	ListFiles(path string) ([]string, error)
+	// Edit performs a fast search-and-replace on a file
+	Edit(path string, oldStr, newStr string) error
+	// Batch executes multiple file operations at once
+	Batch(ops []BatchOp) error
+}
+
+// BatchOpType defines the type of operation in a batch
+type BatchOpType string
+
+const (
+	OpWrite  BatchOpType = "write"
+	OpDelete BatchOpType = "delete"
+)
+
+// BatchOp represents a single operation in a batch
+type BatchOp struct {
+	Type    BatchOpType
+	Path    string
+	Content []byte
 }
 
 // LocalFS implements FS using the local filesystem
@@ -64,6 +84,45 @@ func (l *LocalFS) ListFiles(path string) ([]string, error) {
 		files = append(files, entry.Name())
 	}
 	return files, nil
+}
+
+// Edit performs a fast search-and-replace on a file without rewriting if no changes
+func (l *LocalFS) Edit(path string, oldStr, newStr string) error {
+	fullPath := l.resolvePath(path)
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		return err
+	}
+
+	if !bytes.Contains(content, []byte(oldStr)) {
+		return fmt.Errorf("string not found in file")
+	}
+
+	newContent := bytes.ReplaceAll(content, []byte(oldStr), []byte(newStr))
+	
+	// Atomic-ish write: only write if something changed
+	if bytes.Equal(content, newContent) {
+		return nil
+	}
+
+	return os.WriteFile(fullPath, newContent, 0644)
+}
+
+// Batch executes multiple file operations at once for lightning speed
+func (l *LocalFS) Batch(ops []BatchOp) error {
+	for _, op := range ops {
+		switch op.Type {
+		case OpWrite:
+			if err := l.WriteFile(op.Path, op.Content); err != nil {
+				return err
+			}
+		case OpDelete:
+			if err := l.DeleteFile(op.Path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // resolvePath ensures paths are handled relative to the base directory
