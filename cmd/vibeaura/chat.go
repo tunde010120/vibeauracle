@@ -21,6 +21,12 @@ type model struct {
 	brain       *brain.Brain
 	width       int
 	height      int
+	initialized bool
+}
+
+type chatState struct {
+	Messages []string `json:"messages"`
+	Input    string   `json:"input"`
 }
 
 func initialModel(b *brain.Brain) model {
@@ -39,20 +45,40 @@ func initialModel(b *brain.Brain) model {
 	ta.ShowLineNumbers = false
 
 	vp := viewport.New(60, 15)
-	vp.SetContent(`Welcome to vibeauracle.
-The Alpha & Omega of AI Engineering.
-type /help for commands.`)
-
-	return model{
+	
+	m := model{
 		textarea: ta,
 		viewport: vp,
 		messages: []string{},
 		brain:    b,
 	}
+
+	// Attempt to restore state
+	var state chatState
+	if err := b.RecallState("chat_session", &state); err == nil {
+		m.messages = state.Messages
+		m.textarea.SetValue(state.Input)
+		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.GotoBottom()
+	} else {
+		vp.SetContent(`Welcome to vibeauracle.
+The Alpha & Omega of AI Engineering.
+type /help for commands.`)
+	}
+
+	return m
 }
 
 func (m model) Init() tea.Cmd {
 	return textarea.Blink
+}
+
+func (m model) saveState() {
+	state := chatState{
+		Messages: m.messages,
+		Input:    m.textarea.Value(),
+	}
+	m.brain.StoreState("chat_session", state)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -74,6 +100,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
+			m.saveState()
 			return m, tea.Quit
 		case "enter":
 			v := m.textarea.Value()
@@ -91,6 +118,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textarea.Reset()
 			m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 			m.viewport.GotoBottom()
+			
+			m.saveState()
 
 			// Process via brain
 			return m, m.processRequest(v)
@@ -104,6 +133,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 		m.viewport.GotoBottom()
+		m.saveState()
 	}
 
 	return m, tea.Batch(tiCmd, vpCmd)

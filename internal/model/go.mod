@@ -1,6 +1,6 @@
 module github.com/nathfavour/vibeauracle/model
 
-go 1.21
+go 1.24.4
 
 require (
 	github.com/ollama/ollama v0.13.5

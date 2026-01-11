@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/nathfavour/vibeauracle/sys"
 	"golang.org/x/mod/semver"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -321,7 +322,9 @@ func checkUpdateSilent() {
 				// Note: installBinary might request sudo, which isn't exactly "quiet".
 				// But for many users (like in /usr/local/bin), they will see the sudo prompt.
 				err := updateFromSource(branch, cm)
-				if err != nil {
+				if err == nil {
+					restartSelf()
+				} else {
 					// Mark as failed so we don't try again
 					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
 					cm.Save(cfg)
@@ -329,7 +332,9 @@ func checkUpdateSilent() {
 			} else if latest != nil {
 				// Stable/Beta binary update
 				err := performBinaryUpdate(latest)
-				if err != nil {
+				if err == nil {
+					restartSelf()
+				} else {
 					// Binary updates usually don't "fail" in the same way builds do,
 					// but we'll mark it anyway if it does.
 					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
@@ -500,6 +505,27 @@ func installBinary(srcPath string) error {
 	}
 
 	return nil
+}
+
+// restartSelf replaces the current process with the newly installed binary
+func restartSelf() {
+	if runtime.GOOS == "windows" {
+		fmt.Println("\n✅ Update complete. Please restart vibeaura.")
+		os.Exit(0)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Printf("Error getting executable path for restart: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Hand off to the new binary while preserving environment and arguments
+	err = syscall.Exec(exe, os.Args, os.Environ())
+	if err != nil {
+		fmt.Printf("Error handing off to new binary: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func updateFromSource(branch string, cm *sys.ConfigManager) error {
@@ -709,6 +735,7 @@ var updateCmd = &cobra.Command{
 			} else {
 				fmt.Printf("Successfully updated to bleeding-edge %s from source!\n", branch)
 			}
+			restartSelf()
 			return nil
 		}
 
@@ -798,6 +825,8 @@ var updateCmd = &cobra.Command{
 		} else {
 			fmt.Println("DONE")
 		}
+
+		restartSelf()
 		return nil
 	},
 }
