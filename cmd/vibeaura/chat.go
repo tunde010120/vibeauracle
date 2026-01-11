@@ -274,7 +274,7 @@ func initialModel(b *brain.Brain) *model {
 	} else {
 		m.messages = append(m.messages, banner)
 		m.messages = append(m.messages, "Type "+systemStyle.Render("/help")+" to see available commands.")
-		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoTop()
 	}
 
@@ -1042,7 +1042,7 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ")+parts[0])
 	}
 
-	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
 	return m, nil
 }
@@ -1108,7 +1108,7 @@ func (m *model) handleAuthCommand(parts []string) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, systemStyle.Render(" AUTH ")+"\n"+errorStyle.Render(fmt.Sprintf(" Provider '%s' not yet integrated ", provider)))
 	}
 
-	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
 	return m, nil
 }
