@@ -798,13 +798,13 @@ func ensureInstalled() {
 		}
 	}
 
-	// 3. Remove conflicting binaries from other user-writable paths
+	// 3. Remove conflicting binaries from the PATH that might shadow us
+	// We only touch user-writable paths (like within HOME) to avoid sudo prompts.
 	locations := getAllBinaryLocations()
 	removedAny := false
 	for _, loc := range locations {
-		if loc != targetPath && !sameFile(loc, targetPath) {
-			// Only try to remove if it's in a likely user-writeable directory
-			// to avoid annoying sudo prompts during startup.
+		// Don't delete the version we just installed, and don't delete the currently running binary
+		if loc != targetPath && loc != realExe && !sameFile(loc, targetPath) && !sameFile(loc, realExe) {
 			if strings.HasPrefix(loc, home) {
 				if err := os.Remove(loc); err == nil {
 					removedAny = true
@@ -837,12 +837,8 @@ func ensureInstalled() {
 func getAllBinaryLocations() []string {
 	var locations []string
 	
-	// Add Termux prefix if it exists
-	if prefix := os.Getenv("PREFIX"); prefix != "" {
-		locations = append(locations, filepath.Join(prefix, "bin/vibeaura"))
-	}
-
-	// Try 'which -a' for system-wide lookup
+	// Only rely on 'which -a' to find what's actually in the PATH.
+	// This is the only thing that causes conflicts.
 	cmd := exec.Command("which", "-a", "vibeaura")
 	out, _ := cmd.Output()
 	for _, line := range strings.Split(string(out), "\n") {
@@ -854,35 +850,6 @@ func getAllBinaryLocations() []string {
 		}
 	}
 	
-	// Manual check for common locations in case 'which' is limited
-	home, _ := os.UserHomeDir()
-	standards := []string{
-		"/usr/local/bin/vibeaura",
-		"/usr/bin/vibeaura",
-		"/bin/vibeaura",
-		"/opt/vibeaura/bin/vibeaura",
-		filepath.Join(home, ".local/bin/vibeaura"),
-		filepath.Join(home, "bin/vibeaura"),
-		filepath.Join(home, ".bin/vibeaura"),
-	}
-
-	for _, s := range standards {
-		if _, err := os.Stat(s); err == nil {
-			if abs, err := filepath.Abs(s); err == nil {
-				found := false
-				for _, loc := range locations {
-					if loc == abs {
-						found = true
-						break
-					}
-				}
-				if !found {
-					locations = append(locations, abs)
-				}
-			}
-		}
-	}
-
 	// Filter unique locations
 	unique := make(map[string]bool)
 	var final []string
