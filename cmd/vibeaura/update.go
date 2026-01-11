@@ -521,11 +521,34 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 	}
 	
 	if err := buildCmd.Run(); err != nil {
+		goos, _ := getPlatform()
+		if goos == "android" {
+			fmt.Println("\n🛠️  Build failed. Attempting to upgrade Go toolchain automatically...")
+			upgradeCmd := exec.Command("pkg", "upgrade", "golang", "-y")
+			upgradeCmd.Stdout = os.Stdout
+			upgradeCmd.Stderr = os.Stderr
+			if err := upgradeCmd.Run(); err == nil {
+				fmt.Println("✅ Go upgraded. Retrying build...")
+				if err := buildCmd.Run(); err == nil {
+					if !verbose {
+						fmt.Println("DONE")
+					}
+					if err := installBinary(buildOut); err != nil {
+						return err
+					}
+					return nil
+				}
+			}
+		}
+
 		if verbose {
 			fmt.Println("\n❌ Build failed! This usually happens if your installed Go version is older than the one required by the project.")
-			fmt.Println("👉 Try running: pkg upgrade golang (on Termux) or update Go on your desktop.")
+			if goos == "android" {
+				fmt.Println("👉 Try running: pkg upgrade golang (on Termux)")
+			} else {
+				fmt.Println("👉 Try updating Go on your desktop.")
+			}
 		}
-		// Quietly mark this commit as failed if possible
 		commitCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "HEAD")
 		if out, err := commitCmd.Output(); err == nil {
 			failedSHA := strings.TrimSpace(string(out))
