@@ -581,9 +581,11 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 
 	timestamp := time.Now().Format("2006-01-02_150405")
 	filename := fmt.Sprintf("vibeaura_%s", timestamp)
-	ansiPath := filepath.Join(dir, filename+".ansi")
-	svgPath := filepath.Join(dir, filename+".svg")
-	pngPath := filepath.Join(dir, filename+".png")
+	
+	basePath := filepath.Join(dir, filename)
+	ansiPath := basePath + ".ansi"
+	svgPath := basePath + ".svg"
+	pngPath := basePath + ".png"
 
 	// Create styled frame for ANSI capture
 	frameStyle := lipgloss.NewStyle().
@@ -594,25 +596,27 @@ func (m *model) takeScreenshot() (tea.Model, tea.Cmd) {
 	rawView := m.View()
 	captured := frameStyle.Render(rawView)
 
-	// Save ANSI
-	_ = os.WriteFile(ansiPath, []byte(captured), 0644)
-
-	// Generate and Save SVG
+	// Tier 2: Generate SVG but don't save yet if targeting PNG
 	svgContent := convertAnsiToSVG(captured)
 	_ = os.WriteFile(svgPath, []byte(svgContent), 0644)
 
-	// Attempt PNG conversion
+	// Tier 1: Try PNG
 	err := convertToPNG(svgPath, pngPath)
 	
 	msg := systemStyle.Render(" SCREENSHOT CAPTURED ") + "\n"
-	msg += helpStyle.Render("📍 ANSI: "+ansiPath+"\n📍 SVG:  "+svgPath)
 	
 	if err == nil {
-		msg += helpStyle.Render("\n🖼️ PNG:  "+pngPath)
-		// Clean up intermediate SVG if we have a PNG? 
-		// Actually, users might want both.
+		// Highest Tier: PNG only
+		_ = os.Remove(svgPath)
+		msg += helpStyle.Render("🖼️ Saved PNG: "+pngPath)
+	} else if svgContent != "" {
+		// Middle Tier: SVG only
+		msg += helpStyle.Render("📍 Saved SVG: "+svgPath)
+		msg += "\n" + errorStyle.Render(" PNG fail: ") + helpStyle.Render("install ffmpeg/rsvg")
 	} else {
-		msg += "\n" + errorStyle.Render(" PNG conversion failed: ") + helpStyle.Render("Install 'rsvg-convert' or 'ffmpeg'")
+		// Fallback Tier: ANSI only
+		_ = os.WriteFile(ansiPath, []byte(captured), 0644)
+		msg += helpStyle.Render("📄 Saved ANSI: "+ansiPath)
 	}
 
 	m.messages = append(m.messages, msg)
