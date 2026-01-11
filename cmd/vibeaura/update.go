@@ -213,11 +213,6 @@ func populateActualSHA(latest *releaseInfo) {
 }
 
 func isUpdateAvailable(latest *releaseInfo) bool {
-	// If we are in a dev build, we don't automatically suggest updates.
-	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
-		return false
-	}
-
 	// 1. Try Semantic Versioning comparison
 	vLocal := Version
 	if !strings.HasPrefix(vLocal, "v") && semver.IsValid("v"+vLocal) {
@@ -238,7 +233,13 @@ func isUpdateAvailable(latest *releaseInfo) bool {
 		return latest.ActualSHA != "" && latest.ActualSHA != Commit
 	}
 
-	// 3. Fallback: if names differ and aren't semver, it's likely an update
+	// 3. Fallback: if we are in a dev build, we usually don't want auto-update prompts,
+	// but if the user explicitly runs 'update', we'll handle that in the command logic.
+	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
+		return false
+	}
+
+	// 4. Default fallback: if names differ and aren't semver, it's likely an update
 	return true
 }
 
@@ -749,9 +750,13 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("checking for updates: %w", err)
 		}
 
-		if !isUpdateAvailable(latest) && Version != "dev" {
+		if !isUpdateAvailable(latest) && !strings.HasPrefix(Version, "dev") {
 			fmt.Println("vibeaura is already up to date!")
 			return nil
+		}
+
+		if strings.HasPrefix(Version, "dev") {
+			fmt.Printf("Dev build detected. Force-updating to latest stable binary (%s)...\n", latest.TagName)
 		}
 
 		remoteVer := latest.ActualSHA
