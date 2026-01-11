@@ -531,18 +531,27 @@ func installBinary(srcPath, dstPath string) error {
 	}
 
 	// Normal installation (no sudo)
-	// Try removing first to avoid ETXTBSY
-	os.Remove(dstPath)
-	
-	// If it was busy, remove might fail or it might still be busy. 
-	// A more robust way is to rename the old one out of the way.
-	if _, err := os.Stat(dstPath); err == nil {
-		oldPath := dstPath + ".old"
-		os.Remove(oldPath)
-		if err := os.Rename(dstPath, oldPath); err != nil {
-			// If rename fails, we might still have issues, but let's try copy
-		} else {
-			defer os.Remove(oldPath)
+	// Try removing first to avoid ETXTBSY. On Windows, we rename the running file out of the way.
+	if runtime.GOOS == "windows" {
+		if _, err := os.Stat(dstPath); err == nil {
+			oldPath := dstPath + ".old"
+			os.Remove(oldPath) // Remove any previous leftovers
+			if err := os.Rename(dstPath, oldPath); err != nil {
+				return fmt.Errorf("could not move existing binary on Windows: %w", err)
+			}
+			// We can't delete it while running, but it's now out of the way for the new one.
+		}
+	} else {
+		os.Remove(dstPath)
+		// If it was busy, remove might fail. Rename it out of the way.
+		if _, err := os.Stat(dstPath); err == nil {
+			oldPath := dstPath + ".old"
+			os.Remove(oldPath)
+			if err := os.Rename(dstPath, oldPath); err != nil {
+				// If rename fails, we might still have issues, but let's try copy
+			} else {
+				defer os.Remove(oldPath)
+			}
 		}
 	}
 
@@ -639,6 +648,8 @@ func ensureInstalled() {
 	targetPath := filepath.Join(goBin, "vibeaura")
 	if runtime.GOOS == "windows" {
 		targetPath += ".exe"
+		// Clean up any .old file from a previous update on Windows
+		os.Remove(targetPath + ".old")
 	}
 
 	// 1. Ensure target directory exists
@@ -679,6 +690,14 @@ func ensureInstalled() {
 		if migrated {
 			styleSuccess := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 			fmt.Println(styleSuccess.Render("✅  Universal environment setup complete."))
+			
+			if runtime.GOOS == "windows" {
+				fmt.Println("\n👉 Since you are on Windows, please close this window and run 'vibeaura' from a new terminal.")
+				fmt.Println("Press Enter to exit...")
+				var dummy string
+				fmt.Scanln(&dummy)
+				os.Exit(0)
+			}
 			restartWithArgs(os.Args)
 		}
 	}
@@ -784,6 +803,20 @@ func ensureGoBinInPath(goBin string) bool {
 
 	home, _ := os.UserHomeDir()
 	
+	if runtime.GOOS == "windows" {
+		// On Windows, we use PowerShell to update the User PATH.
+		fmt.Printf("📝 Adding %s to your Windows User PATH...\n", goBin)
+		// We use a PowerShell snippet to safely append if not present
+		cmdStr := fmt.Sprintf(`$oldPath = [System.Environment]::GetEnvironmentVariable("Path", "User"); if ($oldPath -notlike "*%s*") { [System.Environment]::SetEnvironmentVariable("Path", "$oldPath;%s", "User") }`, goBin, goBin)
+		err := exec.Command("powershell", "-Command", cmdStr).Run()
+		if err != nil {
+			fmt.Printf("⚠️  Failed to update Windows PATH automatically: %v\n", err)
+			fmt.Printf("👉 Please manually add %s to your PATH.\n", goBin)
+			return false
+		}
+		return true
+	}
+
 	// Create common shell variable for standard Go Bin relative to home
 	tildaPath := "~/go/bin"
 	if !strings.HasPrefix(goBin, filepath.Join(home, "go", "bin")) {
