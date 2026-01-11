@@ -830,11 +830,28 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 	// Log command echoing faintly
 	m.messages = append(m.messages, commandEchoStyle.Render("λ "+m.styleMessage(cmd)))
 
-	// Special handling for subcommands: if the first part is recognized as a command, 
-	// we process it. If it's something like "/list" but it's not a top-level command,
-	// we should probably check if it was intended for the active module, 
-	// but since we are stateless in the TUI commands mostly, we check the global structure.
-	
+	// Normalize command path if user uses slashes without spaces (e.g. /models/list)
+	if len(parts) == 1 && strings.Count(parts[0], "/") > 1 {
+		cmdPath := parts[0]
+		isKnown := false
+		for _, c := range allCommands {
+			if c == cmdPath {
+				isKnown = true
+				break
+			}
+		}
+		if !isKnown {
+			// Split path like /models/list into ["/models", "/list"]
+			rawParts := strings.Split(strings.TrimPrefix(cmdPath, "/"), "/")
+			parts = []string{}
+			for _, p := range rawParts {
+				if p != "" {
+					parts = append(parts, "/"+p)
+				}
+			}
+		}
+	}
+
 	switch parts[0] {
 	case "/help":
 		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /mcp     - Manage MCP tools & servers\n• /skill   - Manage agentic vibes/skills\n• /sys     - Hardware & system details\n• /auth    - Manage AI provider credentials\n• /shot    - Take a beautiful TUI screenshot\n• /cwd     - Show current directory\n• /version - Show version info\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
