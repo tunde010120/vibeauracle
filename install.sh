@@ -40,40 +40,51 @@ fi
 echo "Detected Platform: $OS/$ARCH"
 
 # Get latest release tag
-# GitHub's /releases/latest endpoint only returns non-prereleases.
-# We fetch the release list and use a robust way to extract the tag name,
-# handling both pretty-printed and minified JSON.
+# We prefer git ls-remote to avoid GitHub API rate limits (403 errors).
+# If git is not available, we fallback to the API.
 echo "Fetching release metadata..."
 
-# Use a portable temporary file (Termux doesn't have /tmp)
-TMP_ERR=$(mktemp)
-TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases" 2>"$TMP_ERR" || true)
-
-if [ -z "$TAG_DATA" ]; then
-    echo "Error: Failed to fetch releases from GitHub API."
-    if [ -f "$TMP_ERR" ]; then
-        cat "$TMP_ERR"
-        rm "$TMP_ERR"
-    fi
-    exit 1
-fi
-rm "$TMP_ERR"
-
-LATEST_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
-
-# If we found tags but it wasn't the 'latest' tag specifically, 
-# try to see if 'latest' exists in the list for stability
-if [[ "$LATEST_TAG" != "latest" ]]; then
-    STABLE_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"latest"' | head -n 1 | cut -d'"' -f4)
-    if [ -n "$STABLE_TAG" ]; then
-        LATEST_TAG="$STABLE_TAG"
+LATEST_TAG=""
+if command -v git >/dev/null 2>&1; then
+    # Try to get the latest tag (preferring 'latest' rolling tag or newest semver)
+    ALL_TAGS=$(git ls-remote --tags "https://github.com/$REPO.git" | cut -d/ -f3)
+    if echo "$ALL_TAGS" | grep -q "^latest$"; then
+        LATEST_TAG="latest"
+    else
+        LATEST_TAG=$(echo "$ALL_TAGS" | grep -E "^v[0-9]" | sort -V | tail -n 1)
     fi
 fi
 
 if [ -z "$LATEST_TAG" ]; then
-    echo "Error: Could not determine latest version. Please check $GITHUB_URL/releases"
-    exit 1
+    # Fallback to API if git failed or wasn't found
+    TMP_ERR=$(mktemp)
+    TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases" 2>"$TMP_ERR" || true)
+
+    if [ -n "$TAG_DATA" ]; then
+        LATEST_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
+
+        # If we found tags but it wasn't the 'latest' tag specifically, 
+        # try to see if 'latest' exists in the list for stability
+        if [[ "$LATEST_TAG" != "latest" ]]; then
+            STABLE_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"latest"' | head -n 1 | cut -d'"' -f4)
+            if [ -n "$STABLE_TAG" ]; then
+                LATEST_TAG="$STABLE_TAG"
+            fi
+        fi
+    fi
+
+    if [ -z "$LATEST_TAG" ]; then
+        echo "Error: Failed to fetch releases from GitHub."
+        if [ -f "$TMP_ERR" ] && [ -s "$TMP_ERR" ]; then
+            cat "$TMP_ERR"
+        fi
+        rm -f "$TMP_ERR"
+        exit 1
+    fi
+    rm -f "$TMP_ERR"
 fi
+
+echo "Resolved version: $LATEST_TAG"
 
 DOWNLOAD_URL="$GITHUB_URL/releases/download/$LATEST_TAG/$BINARY_NAME"
 
