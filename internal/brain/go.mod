@@ -1,3 +1,3 @@
 module github.com/nathfavour/vibeauracle/brain
 
-go 1.24.4
+go 1.21

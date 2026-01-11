@@ -2,7 +2,7 @@
 
 > **Status:** Active / Pre-Alpha
 > **Maintainer:** @nathfavour
-> **Core Stack:** Go 1.24+ (Workspaces), Bubble Tea (TUI), Libp2p, Ollama/Llama.cpp
+> **Core Stack:** Go 1.21+ (Workspaces), Bubble Tea (TUI), Libp2p, Ollama/Llama.cpp
 
 ---
 

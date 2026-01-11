@@ -1,6 +1,6 @@
 module github.com/nathfavour/vibeauracle/tooling
 
-go 1.24.0
+go 1.21
 
 require github.com/nathfavour/vibeauracle/sys v0.0.0
 
@@ -24,8 +24,8 @@ require (
 	github.com/tklauser/numcpus v0.10.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/text v0.32.0 // indirect
 )
 
 replace github.com/nathfavour/vibeauracle/sys => ../sys

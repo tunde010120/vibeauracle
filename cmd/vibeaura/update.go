@@ -16,6 +16,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/nathfavour/vibeauracle/sys"
+	"golang.org/x/mod/semver"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,7 @@ const repo = "nathfavour/vibeauracle"
 type releaseInfo struct {
 	TagName         string `json:"tag_name"`
 	TargetCommitish string `json:"target_commitish"`
+	Prerelease      bool   `json:"prerelease"`
 	ActualSHA       string `json:"-"`
 	Assets          []struct {
 		Name               string `json:"name"`
@@ -93,7 +95,7 @@ func fetchWithFallback(url string) ([]byte, error) {
 	return nil, err // Return original Go error if curl also fails or is missing
 }
 
-func getLatestRelease() (*releaseInfo, error) {
+func getLatestRelease(channel string) (*releaseInfo, error) {
 	data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
 	if err != nil {
 		return nil, err
@@ -108,7 +110,48 @@ func getLatestRelease() (*releaseInfo, error) {
 		return nil, fmt.Errorf("no releases found")
 	}
 
-	latest := releases[0]
+	var latest *releaseInfo
+
+	// If a specific channel is requested, find the exact match first
+	if channel != "" {
+		for i := range releases {
+			if strings.EqualFold(releases[i].TagName, channel) {
+				latest = &releases[i]
+				break
+			}
+		}
+	}
+
+	// If no channel match found, or channel is empty, find the best release
+	if latest == nil {
+		// Priority 1: Highest SemVer tag (non-prerelease)
+		for i := range releases {
+			tag := releases[i].TagName
+			if !strings.HasPrefix(tag, "v") {
+				tag = "v" + tag
+			}
+			if semver.IsValid(tag) && semver.Prerelease(tag) == "" {
+				if latest == nil || semver.Compare(tag, latest.TagName) > 0 {
+					latest = &releases[i]
+				}
+			}
+		}
+
+		// Priority 2: 'latest' tag
+		if latest == nil {
+			for i := range releases {
+				if releases[i].TagName == "latest" {
+					latest = &releases[i]
+					break
+				}
+			}
+		}
+
+		// Priority 3: Just the first release in the list
+		if latest == nil {
+			latest = &releases[0]
+		}
+	}
 
 	// Try to fetch metadata.json from assets for precise versioning
 	for _, asset := range latest.Assets {
@@ -118,7 +161,7 @@ func getLatestRelease() (*releaseInfo, error) {
 				var m metadata
 				if err := json.Unmarshal(metaData, &m); err == nil && m.Commit != "" {
 					latest.ActualSHA = m.Commit
-					return &latest, nil
+					return latest, nil
 				}
 			}
 		}
@@ -134,32 +177,45 @@ func getLatestRelease() (*releaseInfo, error) {
 		}
 		if err := json.Unmarshal(tagData, &tagInfo); err == nil && tagInfo.Object.SHA != "" {
 			latest.ActualSHA = tagInfo.Object.SHA
+		} else {
+			// Try branch-based if tag resolution fails (for 'latest' or 'beta' which might be branches/rolling tags)
+			sha, _ := getBranchCommitSHA(latest.TagName)
+			if sha != "" {
+				latest.ActualSHA = sha
+			}
 		}
 	}
 
-	return &latest, nil
+	return latest, nil
 }
 
 func isUpdateAvailable(latest *releaseInfo) bool {
-	// If we are in a dev build, we don't automatically suggest updates unless it's a forced check
-	// This avoids the "dumb" behavior of dev always suggesting updates.
-	if Version == "dev" {
-		return false 
+	// If we are in a dev build, we don't automatically suggest updates.
+	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
+		return false
 	}
 
-	remoteSHA := latest.ActualSHA
-	if remoteSHA == "" {
-		// If we still don't have a SHA, we can't reliably say there's an update
-		// unless the tag name is different.
-		return latest.TagName != Version
+	// 1. Try Semantic Versioning comparison
+	vLocal := Version
+	if !strings.HasPrefix(vLocal, "v") && semver.IsValid("v"+vLocal) {
+		vLocal = "v" + vLocal
+	}
+	vRemote := latest.TagName
+	if !strings.HasPrefix(vRemote, "v") && semver.IsValid("v"+vRemote) {
+		vRemote = "v" + vRemote
 	}
 
-	// If tags match (e.g. both are 'latest'), compare SHAs
+	if semver.IsValid(vLocal) && semver.IsValid(vRemote) {
+		return semver.Compare(vRemote, vLocal) > 0
+	}
+
+	// 2. Rolling tags logic (latest/beta)
+	// If the tags match, we MUST compare SHAs to know if there's a new build.
 	if latest.TagName == Version {
-		return remoteSHA != Commit
+		return latest.ActualSHA != "" && latest.ActualSHA != Commit
 	}
 
-	// Otherwise, tags differ, so update is available
+	// 3. Fallback: if names differ and aren't semver, it's likely an update
 	return true
 }
 
@@ -197,26 +253,30 @@ func checkUpdateSilent() {
 	var latestSHA string
 	var latestTag string
 	var channel string
+	var latest *releaseInfo
 
-	if useBeta {
-		latestSHA, _ = getBranchCommitSHA("master")
-		latestTag = "beta"
-		channel = "Beta (master)"
+	if useBeta && !buildFromSource {
+		latest, err = getLatestRelease("beta")
+		if err == nil && isUpdateAvailable(latest) {
+			latestSHA = latest.ActualSHA
+			latestTag = latest.TagName
+			channel = "Beta"
+		}
 	} else if buildFromSource {
-		latestSHA, _ = getBranchCommitSHA("release")
-		latestTag = "source"
-		channel = "Source (release)"
+		branch := "release"
+		if useBeta {
+			branch = "master"
+		}
+		latestSHA, _ = getBranchCommitSHA(branch)
+		latestTag = branch
+		channel = "Source (" + branch + ")"
 	} else {
-		latest, err := getLatestRelease()
-		if err != nil {
-			return
+		latest, err = getLatestRelease("")
+		if err == nil && isUpdateAvailable(latest) {
+			latestSHA = latest.ActualSHA
+			latestTag = latest.TagName
+			channel = "Stable"
 		}
-		if !isUpdateAvailable(latest) {
-			return
-		}
-		latestSHA = latest.ActualSHA
-		latestTag = latest.TagName
-		channel = "Stable"
 	}
 
 	if latestSHA != "" && latestSHA != Commit {
@@ -244,17 +304,14 @@ func checkUpdateSilent() {
 					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
 					cm.Save(cfg)
 				}
-			} else {
-				// Stable binary update
-				latest, _ := getLatestRelease() // Re-fetch to get assets
-				if latest != nil {
-					err := performBinaryUpdate(latest)
-					if err != nil {
-						// Binary updates usually don't "fail" in the same way builds do,
-						// but we'll mark it anyway if it does.
-						cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
-						cm.Save(cfg)
-					}
+			} else if latest != nil {
+				// Stable/Beta binary update
+				err := performBinaryUpdate(latest)
+				if err != nil {
+					// Binary updates usually don't "fail" in the same way builds do,
+					// but we'll mark it anyway if it does.
+					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
+					cm.Save(cfg)
 				}
 			}
 			return // After auto-update, no need to print notification
@@ -634,7 +691,11 @@ var updateCmd = &cobra.Command{
 		}
 
 		fmt.Println("Checking for updates...")
-		latest, err := getLatestRelease()
+		reqChannel := ""
+		if useBeta {
+			reqChannel = "beta"
+		}
+		latest, err := getLatestRelease(reqChannel)
 		if err != nil {
 			return fmt.Errorf("checking for updates: %w", err)
 		}
