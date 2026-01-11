@@ -345,10 +345,10 @@ func checkUpdateSilent() {
 				// but since it's "integrated", we'll just run it.
 				// Note: installBinary might request sudo, which isn't exactly "quiet".
 				// But for many users (like in /usr/local/bin), they will see the sudo prompt.
-				err := updateFromSource(branch, cm)
-				if err == nil {
+				updated, err := updateFromSource(branch, cm)
+				if err == nil && updated {
 					restartSelf()
-				} else {
+				} else if err != nil {
 					// Mark as failed so we don't try again
 					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
 					cm.Save(cfg)
@@ -552,22 +552,22 @@ func restartSelf() {
 	}
 }
 
-func updateFromSource(branch string, cm *sys.ConfigManager) error {
+func updateFromSource(branch string, cm *sys.ConfigManager) (bool, error) {
 	cfg, _ := cm.Load()
 	verbose := cfg.Update.Verbose
 
 	// Check if Go is installed
 	if _, err := exec.LookPath("go"); err != nil {
-		return fmt.Errorf("Go is not installed. Source build requires Go.")
+		return false, fmt.Errorf("Go is not installed. Source build requires Go.")
 	}
 	// Check if git is installed
 	if _, err := exec.LookPath("git"); err != nil {
-		return fmt.Errorf("Git is not installed. Source build requires Git.")
+		return false, fmt.Errorf("Git is not installed. Source build requires Git.")
 	}
 
 	sourceRoot := cm.GetDataPath(filepath.Join("source", branch))
 	if err := os.MkdirAll(filepath.Dir(sourceRoot), 0755); err != nil {
-		return fmt.Errorf("creating source directory: %w", err)
+		return false, fmt.Errorf("creating source directory: %w", err)
 	}
 
 	if _, err := os.Stat(filepath.Join(sourceRoot, ".git")); os.IsNotExist(err) {
@@ -581,7 +581,7 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 		}
 		if err := cloneCmd.Run(); err != nil {
 			os.RemoveAll(sourceRoot)
-			return fmt.Errorf("cloning repo: %w", err)
+			return false, fmt.Errorf("cloning repo: %w", err)
 		}
 	} else {
 		if verbose {
@@ -589,25 +589,25 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 		}
 		fetchCmd := exec.Command("git", "-C", sourceRoot, "fetch", "origin", branch)
 		if err := fetchCmd.Run(); err != nil {
-			return fmt.Errorf("fetching updates: %w", err)
+			return false, fmt.Errorf("fetching updates: %w", err)
 		}
 
 		// Get remote SHA
 		remoteCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "origin/"+branch)
 		remoteSHABytes, err := remoteCmd.Output()
 		if err != nil {
-			return fmt.Errorf("getting remote SHA: %w", err)
+			return false, fmt.Errorf("getting remote SHA: %w", err)
 		}
 		remoteSHA := strings.TrimSpace(string(remoteSHABytes))
 
-		if remoteSHA == Commit && Version != "dev" {
-			return nil
+		if remoteSHA == Commit && !strings.HasPrefix(Version, "dev") {
+			return false, nil
 		}
 
 		// Check if this commit previously failed
 		for _, failed := range cfg.Update.FailedCommits {
 			if failed == remoteSHA {
-				return nil
+				return false, nil
 			}
 		}
 
@@ -620,7 +620,7 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 			pullCmd.Stderr = os.Stderr
 		}
 		if err := pullCmd.Run(); err != nil {
-			return fmt.Errorf("pulling updates: %w", err)
+			return false, fmt.Errorf("pulling updates: %w", err)
 		}
 	}
 
@@ -632,6 +632,12 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 	commitCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "HEAD")
 	commitSHABytes, _ := commitCmd.Output()
 	localCommit := strings.TrimSpace(string(commitSHABytes))
+
+	// Final check: if the localCommit we just pulled matches current Commit, no update needed.
+	// This covers cases where 'remoteSHA' was fetched but we are already running that code.
+	if localCommit == Commit && !strings.HasPrefix(Version, "dev") {
+		return false, nil
+	}
 	
 	buildDate := time.Now().UTC().Format(time.RFC3339)
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s -X main.Commit=%s -X main.BuildDate=%s", branch, localCommit, buildDate)
@@ -663,9 +669,9 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 						fmt.Println("DONE")
 					}
 					if err := installBinary(buildOut); err != nil {
-						return err
+						return false, err
 					}
-					return nil
+					return true, nil
 				}
 			}
 		}
@@ -687,7 +693,7 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 				cm.Save(cfg)
 			}
 		}
-		return fmt.Errorf("building from source: %w", err)
+		return false, fmt.Errorf("building from source: %w", err)
 	}
 
 	if !verbose {
@@ -695,10 +701,10 @@ func updateFromSource(branch string, cm *sys.ConfigManager) error {
 	}
 
 	if err := installBinary(buildOut); err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	return true, nil
 }
 
 var (
@@ -771,13 +777,23 @@ var updateCmd = &cobra.Command{
 				}
 			}
 			
-			err := updateFromSource(branch, cm)
+			updated, err := updateFromSource(branch, cm)
 			if err != nil {
 				if !verbose {
 					fmt.Println("FAILED")
 				}
 				return err
 			}
+
+			if !updated {
+				if !verbose {
+					fmt.Println("ALREADY UP TO DATE")
+				} else {
+					fmt.Println("vibeaura is already up to date on this branch.")
+				}
+				return nil
+			}
+
 			if !verbose {
 				fmt.Println("DONE")
 			} else {
