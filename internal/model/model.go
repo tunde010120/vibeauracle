@@ -8,6 +8,7 @@ import (
 // Provider represents an AI model provider (e.g., Ollama, OpenAI)
 type Provider interface {
 	Generate(ctx context.Context, prompt string) (string, error)
+	ListModels(ctx context.Context) ([]string, error)
 	Name() string
 }
 
