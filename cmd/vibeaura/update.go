@@ -96,7 +96,24 @@ func fetchWithFallback(url string) ([]byte, error) {
 }
 
 func getLatestRelease(channel string) (*releaseInfo, error) {
-	data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
+	var data []byte
+	var err error
+
+	// If no specific channel is requested, use the standard GitHub 'latest' endpoint
+	if channel == "" {
+		data, err = fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
+		if err == nil {
+			var latest releaseInfo
+			if err := json.Unmarshal(data, &latest); err == nil {
+				// Success, return it
+				populateActualSHA(&latest)
+				return &latest, nil
+			}
+		}
+	}
+
+	// Fallback or explicit channel request: fetch the list of all releases
+	data, err = fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +129,7 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 
 	var latest *releaseInfo
 
-	// If a specific channel is requested, find the exact match first
+	// If a specific channel is requested, find the exact match (or fallback to SemVer)
 	if channel != "" {
 		for i := range releases {
 			if strings.EqualFold(releases[i].TagName, channel) {
@@ -122,37 +139,44 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 		}
 	}
 
-	// If no channel match found, or channel is empty, find the best release
+	// If no channel match found, or channel is empty, find the best release via SemVer
 	if latest == nil {
-		// Priority 1: Highest SemVer tag (non-prerelease)
 		for i := range releases {
 			tag := releases[i].TagName
-			if !strings.HasPrefix(tag, "v") {
-				tag = "v" + tag
+			vTag := tag
+			if !strings.HasPrefix(vTag, "v") {
+				vTag = "v" + vTag
 			}
-			if semver.IsValid(tag) && semver.Prerelease(tag) == "" {
-				if latest == nil || semver.Compare(tag, latest.TagName) > 0 {
+
+			// Only consider non-prereleases for automatic 'latest' if channel is empty
+			if semver.IsValid(vTag) && (channel != "" || semver.Prerelease(vTag) == "") {
+				if latest == nil {
+					latest = &releases[i]
+					continue
+				}
+
+				latestVTag := latest.TagName
+				if !strings.HasPrefix(latestVTag, "v") {
+					latestVTag = "v" + latestVTag
+				}
+
+				if semver.IsValid(latestVTag) && semver.Compare(vTag, latestVTag) > 0 {
 					latest = &releases[i]
 				}
 			}
-		}
-
-		// Priority 2: 'latest' tag
-		if latest == nil {
-			for i := range releases {
-				if releases[i].TagName == "latest" {
-					latest = &releases[i]
-					break
-				}
-			}
-		}
-
-		// Priority 3: Just the first release in the list
-		if latest == nil {
-			latest = &releases[0]
 		}
 	}
 
+	// Final fallback: just the first release in the list if still nil
+	if latest == nil {
+		latest = &releases[0]
+	}
+
+	populateActualSHA(latest)
+	return latest, nil
+}
+
+func populateActualSHA(latest *releaseInfo) {
 	// Try to fetch metadata.json from assets for precise versioning
 	for _, asset := range latest.Assets {
 		if asset.Name == "metadata.json" {
@@ -161,7 +185,7 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 				var m metadata
 				if err := json.Unmarshal(metaData, &m); err == nil && m.Commit != "" {
 					latest.ActualSHA = m.Commit
-					return latest, nil
+					return
 				}
 			}
 		}
@@ -185,8 +209,6 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 			}
 		}
 	}
-
-	return latest, nil
 }
 
 func isUpdateAvailable(latest *releaseInfo) bool {

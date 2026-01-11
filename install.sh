@@ -39,13 +39,15 @@ fi
 
 echo "Detected Platform: $OS/$ARCH"
 
-# Get latest release tag (including pre-releases if latest is empty)
-LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+# Get latest release tag from the standard GitHub "latest" release endpoint
+LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
 
 if [ -z "$LATEST_TAG" ]; then
-    echo "Could not find latest release. Please check $GITHUB_URL/releases"
-    exit 1
+    # Fallback: get the very first release if "latest" isn't explicitly set (e.g., only prereleases exist)
+    LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
 fi
+
+if [ -z "$LATEST_TAG" ]; then
 
 DOWNLOAD_URL="$GITHUB_URL/releases/download/$LATEST_TAG/$BINARY_NAME"
 
