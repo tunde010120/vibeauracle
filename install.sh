@@ -43,7 +43,17 @@ echo "Detected Platform: $OS/$ARCH"
 # GitHub's /releases/latest endpoint only returns non-prereleases.
 # We fetch the release list and use a robust way to extract the tag name,
 # handling both pretty-printed and minified JSON.
-TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases")
+echo "Fetching release metadata..."
+TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases" 2>/tmp/vibe-curl-err || true)
+
+if [ -z "$TAG_DATA" ]; then
+    echo "Error: Failed to fetch releases from GitHub API."
+    if [ -f /tmp/vibe-curl-err ]; then
+        cat /tmp/vibe-curl-err
+    fi
+    exit 1
+fi
+
 LATEST_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
 
 # If we found tags but it wasn't the 'latest' tag specifically, 
