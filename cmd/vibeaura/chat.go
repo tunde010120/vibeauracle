@@ -173,7 +173,7 @@ func initialModel(b *brain.Brain) *model {
 	} else {
 		m.messages = append(m.messages, banner)
 		m.messages = append(m.messages, "Type "+systemStyle.Render("/help")+" to see available commands.")
-		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+		m.viewport.SetContent(strings.Join(m.messages, "\n"))
 	}
 
 	return m
@@ -283,8 +283,7 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.suggestionIdx = (m.suggestionIdx - 1 + len(m.suggestions)) % len(m.suggestions)
 			return m, nil
 		case "enter":
-			m.applySuggestion()
-			return m, nil
+			return m.applySuggestion()
 		case "esc":
 			m.suggestions = nil
 			return m, nil
@@ -325,17 +324,36 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(v, "/") {
 			return m.handleSlashCommand(v)
 		}
-		m.messages = append(m.messages, userStyle.Render("You: ")+v)
+		m.messages = append(m.messages, userStyle.Render("You: ")+m.styleMessage(v))
 		m.textarea.Reset()
+		m.textarea.FocusedStyle.Text = lipgloss.NewStyle()
 		m.suggestions = nil
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 		m.viewport.GotoBottom()
 		m.saveState()
 		return m, m.processRequest(v)
 	default:
-		m.updateSuggestions(m.textarea.Value())
+		val := m.textarea.Value()
+		m.updateSuggestions(val)
+		if strings.HasPrefix(val, "/") {
+			m.textarea.FocusedStyle.Text = systemStyle
+		} else {
+			m.textarea.FocusedStyle.Text = lipgloss.NewStyle()
+		}
 	}
 	return m, nil
+}
+
+func (m *model) styleMessage(v string) string {
+	words := strings.Fields(v)
+	for i, w := range words {
+		if strings.HasPrefix(w, "/") {
+			words[i] = systemStyle.Render(w)
+		} else if strings.HasPrefix(w, "#") {
+			words[i] = tagStyle.Render(w)
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 func (m *model) handlePerusalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -510,27 +528,34 @@ func (m *model) getFileSuggestions(prefix string) []string {
 	return suggestions
 }
 
-func (m *model) applySuggestion() {
+func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 	if len(m.suggestions) == 0 {
-		return
+		return m, nil
 	}
 	
 	val := m.textarea.Value()
 	words := strings.Fields(val)
 	
 	suggestion := m.suggestions[m.suggestionIdx]
-	// Avoid doubling trigger characters (e.g. //help or ##file)
 	trimmed := strings.TrimPrefix(suggestion, m.triggerChar)
 	replacement := m.triggerChar + trimmed
 
 	if len(words) == 0 {
-		m.textarea.SetValue(replacement + " ")
+		m.textarea.SetValue(replacement)
 	} else {
 		words[len(words)-1] = replacement
-		m.textarea.SetValue(strings.Join(words, " ") + " ")
+		m.textarea.SetValue(strings.Join(words, " "))
 	}
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	m.suggestions = nil
+
+	if m.triggerChar == "/" {
+		return m.handleSlashCommand(m.textarea.Value())
+	}
+	
+	m.textarea.SetValue(m.textarea.Value() + " ")
+	m.textarea.SetCursor(len(m.textarea.Value()))
+	return m, nil
 }
 
 func (m *model) processRequest(content string) tea.Cmd {
