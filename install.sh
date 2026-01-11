@@ -40,11 +40,19 @@ fi
 echo "Detected Platform: $OS/$ARCH"
 
 # Get latest release tag
-LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+# GitHub's /releases/latest endpoint only returns non-prereleases.
+# We fallback to the full list and grab the first one (usually latest or beta)
+# or look specifically for 'latest'.
+TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases")
+LATEST_TAG=$(echo "$TAG_DATA" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
 
-if [ -z "$LATEST_TAG" ]; then
-    # Fallback to general releases list
-    LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+# If we found tags but it wasn't the 'latest' tag specifically, 
+# try to see if 'latest' exists in the list for stability
+if [[ "$LATEST_TAG" != "latest" ]]; then
+    STABLE_TAG=$(echo "$TAG_DATA" | grep '"tag_name": "latest"' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -n "$STABLE_TAG" ]; then
+        LATEST_TAG="$STABLE_TAG"
+    fi
 fi
 
 if [ -z "$LATEST_TAG" ]; then
