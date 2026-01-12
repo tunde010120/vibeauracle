@@ -16,9 +16,10 @@ import (
 )
 
 var (
-	Version   = "dev"
-	Commit    = "none"
-	BuildDate = "unknown"
+	Version         = "dev"
+	Commit          = "none"
+	BuildDate       = "unknown"
+	resumeStateFile string // For hot-swap restoration
 )
 
 func init() {
@@ -216,6 +217,9 @@ var sysStatsCmd = &cobra.Command{
 }
 
 func main() {
+	rootCmd.PersistentFlags().StringVar(&resumeStateFile, "resume-state", "", "Internal use: resume state from file")
+	rootCmd.PersistentFlags().MarkHidden("resume-state")
+
 	rootCmd.AddCommand(authCmd)
 	authCmd.AddCommand(authGithubCmd)
 	authCmd.AddCommand(authOllamaCmd)

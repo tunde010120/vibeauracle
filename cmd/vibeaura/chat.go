@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,6 +58,11 @@ type model struct {
 	// Thinking / Agentic Process State
 	thinkingLog []StatusEvent
 	isThinking  bool
+
+	// Updater
+	updater       *AsyncUpdateManager
+	updateReady   bool
+	updateVersion string
 }
 
 var (
@@ -262,12 +268,48 @@ func initialModel(b *brain.Brain) *model {
 		// Thinking / Agentic Process State
 		thinkingLog: []StatusEvent{},
 		isThinking:  false,
+
+		updater: NewAsyncUpdateManager(),
 	}
 
+	// Load initial tree
 	// Load initial tree
 	m.loadTree(cwd)
 
 	// Attempt to restore state
+	// Priority 1: Hot-Swap State (explicit file path)
+	if resumeStateFile != "" {
+		content, err := os.ReadFile(resumeStateFile)
+		if err == nil {
+			var state chatState
+			if json.Unmarshal(content, &state) == nil {
+				m.messages = state.Messages
+				m.textarea.SetValue(state.Input)
+				// Clean up the temp file
+				os.Remove(resumeStateFile)
+
+				// Append a system note about the update
+				ensureBanner(&m.messages, banner)
+
+				updateMsg := lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("62")).
+					Padding(0, 1).
+					Foreground(lipgloss.Color("10")).
+					Render(fmt.Sprintf("⚡ UPDATED TO %s", "LATEST")) // We don't have the hash here easily unless we passed it.
+
+				// Better: We can pass the new version in the state file too!
+
+				m.messages = append(m.messages, updateMsg)
+
+				m.viewport.SetContent(m.renderMessages())
+				m.viewport.GotoBottom()
+				return m
+			}
+		}
+	}
+
+	// Priority 2: Persistent Session State (Brain Memory)
 	var state chatState
 	if err := b.RecallState("chat_session", &state); err == nil && len(state.Messages) > 0 {
 		m.messages = state.Messages
@@ -290,7 +332,10 @@ func initialModel(b *brain.Brain) *model {
 }
 
 func (m *model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(
+		textarea.Blink,
+		m.updater.CheckUpdateCmd(),
+	)
 }
 
 func (m *model) saveState() {
@@ -413,6 +458,25 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		val := m.textarea.Value()
 		if strings.Contains(val, "/models /use") {
 			m.updateSuggestions(val)
+		}
+
+	case UpdateAvailableMsg:
+		// Start download immediately
+		m.updateVersion = msg.Latest.TagName
+		return m, m.updater.DownloadUpdateCmd(msg.Latest)
+
+	case UpdateReadyMsg:
+		m.updateReady = true
+	}
+
+	// 5. Check for Hot-Swap Opportunity
+	if m.updateReady && !m.isThinking {
+		// Only swap if user is not actively typing a complex command?
+		// Or just do it. The request says "rapidly within this time frame".
+		// We'll treat !isThinking as the main gap.
+		// Also maybe check if input is empty to be polite.
+		if m.textarea.Value() == "" {
+			PerformHotSwap(m.messages, m.textarea.Value())
 		}
 	}
 

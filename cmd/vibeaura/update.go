@@ -14,10 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"syscall"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/nathfavour/vibeauracle/sys"
 	"golang.org/x/mod/semver"
-	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -121,7 +122,7 @@ func gitLSDiscovery(refType string) (map[string]string, error) {
 		if len(parts) >= 2 {
 			sha := parts[0]
 			ref := parts[1]
-			
+
 			// refs/tags/v1.0.0 -> v1.0.0
 			// refs/heads/master -> master
 			refName := filepath.Base(ref)
@@ -132,7 +133,7 @@ func gitLSDiscovery(refType string) (map[string]string, error) {
 }
 
 func getLatestRelease(channel string) (*releaseInfo, error) {
-	// Priority High: Try git ls-remote to find the tag name first. 
+	// Priority High: Try git ls-remote to find the tag name first.
 	// This is very resilient to rate limits.
 	discoveredTags, _ := gitLSDiscovery("tags")
 	if discoveredTags != nil {
@@ -163,7 +164,7 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 
 		if bestTag != "" {
 			// Now that we have a tag, we STILL want the full release info for assets
-			// but we can target the specific tag which is less likely to hit global 403s 
+			// but we can target the specific tag which is less likely to hit global 403s
 			// compared to /releases/latest.
 			data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, bestTag))
 			if err == nil {
@@ -173,7 +174,7 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 					return &latest, nil
 				}
 			}
-			
+
 			// If API still fails, we can synthesize a releaseInfo if we really want to,
 			// but let's see if we can just return it.
 			synthesized := &releaseInfo{
@@ -232,7 +233,7 @@ func getLatestRelease(channel string) (*releaseInfo, error) {
 	if latest == nil {
 		for i := range releases {
 			tag := releases[i].TagName
-			
+
 			// Priority: if channel is empty, prefer "latest" or valid semver stable releases
 			if channel == "" && tag == "latest" {
 				latest = &releases[i]
@@ -446,7 +447,7 @@ func checkUpdateSilent() {
 				if useBeta {
 					branch = "master"
 				}
-				// We run this in a way that doesn't block the main tool too much, 
+				// We run this in a way that doesn't block the main tool too much,
 				// but since it's "integrated", we'll just run it.
 				// Note: installBinary might request sudo, which isn't exactly "quiet".
 				// But for many users (like in /usr/local/bin), they will see the sudo prompt.
@@ -473,10 +474,10 @@ func checkUpdateSilent() {
 			return // After auto-update, no need to print notification
 		}
 
-		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)      // Bright Green
+		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)       // Bright Green
 		styleChannel := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Italic(true) // Bright Blue
-		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)      // Bright Yellow
-		styleDim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))                  // Gray
+		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)       // Bright Yellow
+		styleDim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))                   // Gray
 
 		displayLatestSHA := latestSHA
 		if len(displayLatestSHA) >= 7 {
@@ -596,7 +597,7 @@ func installBinary(srcPath, dstPath string) error {
 	// Determine if we need sudo based on path and permissions
 	needsSudo := false
 	home, _ := os.UserHomeDir()
-	
+
 	if (runtime.GOOS == "linux" || runtime.GOOS == "darwin") && os.Geteuid() != 0 {
 		// If it's in the home directory, we should ALMOST certainly not need sudo.
 		// We only check if it's NOT in home, or if we explicitly can't write to it.
@@ -635,7 +636,7 @@ func installBinary(srcPath, dstPath string) error {
 		// Use 'rm -f' first to avoid ETXTBSY (Text file busy)
 		// Unlinking the file allows a new file to be created at the same path
 		exec.Command("sudo", "rm", "-f", dstPath).Run()
-		
+
 		sudoCp := exec.Command("sudo", "cp", srcPath, dstPath)
 		sudoCp.Stdout = os.Stdout
 		sudoCp.Stderr = os.Stderr
@@ -646,7 +647,7 @@ func installBinary(srcPath, dstPath string) error {
 			}
 			return fmt.Errorf("replacing binary with sudo: %w", err)
 		}
-		
+
 		exec.Command("sudo", "chmod", "+x", dstPath).Run()
 		if !verbose {
 			fmt.Println("DONE")
@@ -771,7 +772,7 @@ func ensureInstalled() {
 	goBin := getGoBin()
 	targetPath := filepath.Join(goBin, "vibeaura")
 	home, _ := os.UserHomeDir()
-	
+
 	if runtime.GOOS == "windows" {
 		targetPath += ".exe"
 		// Clean up any .old file from a previous update on Windows
@@ -790,7 +791,7 @@ func ensureInstalled() {
 			lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Render("vibeaura"),
 			targetPath,
 		)
-		
+
 		if err := installBinary(realExe, targetPath); err != nil {
 			fmt.Printf("❌  Failed to install to universal path: %v\n", err)
 		} else {
@@ -821,7 +822,7 @@ func ensureInstalled() {
 		if migrated {
 			styleSuccess := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 			fmt.Println(styleSuccess.Render("✅  Universal environment setup complete."))
-			
+
 			if runtime.GOOS == "windows" {
 				fmt.Println("\n👉 Since you are on Windows, please close this window and run 'vibeaura' from a new terminal.")
 				fmt.Println("Press Enter to exit...")
@@ -836,7 +837,7 @@ func ensureInstalled() {
 
 func getAllBinaryLocations() []string {
 	var locations []string
-	
+
 	// Only rely on 'which -a' to find what's actually in the PATH.
 	// This is the only thing that causes conflicts.
 	cmd := exec.Command("which", "-a", "vibeaura")
@@ -849,7 +850,7 @@ func getAllBinaryLocations() []string {
 			}
 		}
 	}
-	
+
 	// Filter unique locations
 	unique := make(map[string]bool)
 	var final []string
@@ -871,7 +872,7 @@ func ensureGoBinInPath(goBin string) bool {
 	}
 
 	home, _ := os.UserHomeDir()
-	
+
 	if runtime.GOOS == "windows" {
 		// On Windows, we use PowerShell to update the User PATH.
 		fmt.Printf("📝 Adding %s to your Windows User PATH...\n", goBin)
@@ -895,7 +896,7 @@ func ensureGoBinInPath(goBin string) bool {
 
 	// We'll update both common shell profiles
 	configs := []string{".zshrc", ".bashrc", ".profile", ".bash_profile"}
-	
+
 	updated := false
 	for _, conf := range configs {
 		confPath := filepath.Join(home, conf)
@@ -1012,7 +1013,7 @@ func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager)
 	if verbose {
 		fmt.Println("Building from source...")
 	}
-	
+
 	// Get current commit SHA for the local build
 	commitCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "HEAD")
 	commitSHABytes, _ := commitCmd.Output()
@@ -1023,14 +1024,14 @@ func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager)
 	if localCommit == Commit && !strings.HasPrefix(Version, "dev") {
 		return false, nil
 	}
-	
+
 	buildDate := time.Now().UTC().Format(time.RFC3339)
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s -X main.Commit=%s -X main.BuildDate=%s", branch, localCommit, buildDate)
 
 	buildOut := filepath.Join(sourceRoot, "vibeaura_new")
 	buildCmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", buildOut, "./cmd/vibeaura")
 	buildCmd.Dir = sourceRoot
-	
+
 	// Force Go to use the locally installed toolchain and avoid automatic downloads
 	// which often fail on mobile/Termux.
 	buildCmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
@@ -1039,7 +1040,7 @@ func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager)
 		buildCmd.Stdout = os.Stdout
 		buildCmd.Stderr = os.Stderr
 	}
-	
+
 	if err := buildCmd.Run(); err != nil {
 		goos, _ := getPlatform()
 		if goos == "android" {
@@ -1112,7 +1113,7 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("loading config: %w", err)
 		}
 
-		// If auto-update was disabled (likely due to a rollback), re-enable it 
+		// If auto-update was disabled (likely due to a rollback), re-enable it
 		// now that the user is explicitly running a manual update.
 		if !cfg.Update.AutoUpdate {
 			cfg.Update.AutoUpdate = true
@@ -1153,7 +1154,7 @@ var updateCmd = &cobra.Command{
 		if len(curCommit) > 7 {
 			curCommit = curCommit[:7]
 		}
-		
+
 		if verbose {
 			fmt.Printf("Current version: %s (commit: %s)\n", Version, curCommit)
 		}
@@ -1163,7 +1164,7 @@ var updateCmd = &cobra.Command{
 			if useBeta {
 				branch = "master"
 			}
-			
+
 			if !verbose {
 				fmt.Printf("🔄  Updating to %s... ", branch)
 			} else {
@@ -1173,7 +1174,7 @@ var updateCmd = &cobra.Command{
 					fmt.Println("🛠️ Building from source (release branch)...")
 				}
 			}
-			
+
 			updated, err := updateFromSource(branch, cm)
 			if err != nil {
 				if !verbose {
@@ -1233,7 +1234,7 @@ var updateCmd = &cobra.Command{
 				return nil
 			}
 		}
-		
+
 		displaySHA := remoteVer
 		if len(displaySHA) > 7 {
 			displaySHA = displaySHA[:7]
@@ -1268,7 +1269,7 @@ var updateCmd = &cobra.Command{
 		if verbose {
 			fmt.Printf("Downloading %s...\n", targetAsset)
 		}
-		
+
 		// Download to temp file
 		tmpFile, err := os.CreateTemp("", "vibeaura-update-*")
 		if err != nil {
