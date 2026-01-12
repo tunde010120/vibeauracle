@@ -44,12 +44,31 @@ func (chk *AsyncUpdateManager) CheckUpdateCmd(manual bool) tea.Cmd {
 
 			// Manual updates always proceed; AutoUpdate setting is only for background.
 			if manual || cfg.Update.AutoUpdate {
-				latest, err := getLatestRelease("")
-				if cfg.Update.Beta {
-					latest, err = getLatestRelease("beta")
+				var latest *releaseInfo
+				var err error
+
+				if cfg.Update.BuildFromSource {
+					// For source builds, we check the branch commit directly
+					branch := "release"
+					if cfg.Update.Beta {
+						branch = "master"
+					}
+					sha, err := getBranchCommitSHA(branch)
+					if err == nil {
+						latest = &releaseInfo{
+							TagName:   branch,
+							ActualSHA: sha,
+						}
+					}
+				} else {
+					// Binary updates
+					latest, err = getLatestRelease("")
+					if cfg.Update.Beta {
+						latest, err = getLatestRelease("beta")
+					}
 				}
 
-				if err == nil && isUpdateAvailable(latest, !manual) {
+				if err == nil && latest != nil && isUpdateAvailable(latest, !manual) {
 					// Don't auto-update failed commits
 					failed := false
 					for _, f := range cfg.Update.FailedCommits {
