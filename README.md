@@ -1,6 +1,4 @@
 <div align="center">
-  <img src="./assets/banner.png" width="100%" alt="Vibeauracle Banner" />
-  <br/>
   <img src="./assets/vibeaura.png" width="128" alt="Vibeauracle Logo" />
 
   # vibeauracle
