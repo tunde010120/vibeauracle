@@ -31,11 +31,6 @@ func (p *SystemProvider) Provide(ctx context.Context) ([]Tool, error) {
 		&GrepTool{},
 		NewSystemInfoTool(p.monitor),
 		&FetchURLTool{},
-		NewToolDiscoveryTool(NewRegistry()), // Temporary: we need a reference to the main registry.
-		// Actually, SystemProvider shouldn't instantiate the registry.
-		// The Discovery Tool needs access to the registry.
-		// We'll solve this by setting the registry on the tool AFTER registration or passing it in.
-		// For now, let's delay adding it here and add it in Setup.
 	}
 
 	var secured []Tool
