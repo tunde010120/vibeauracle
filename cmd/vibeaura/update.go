@@ -410,6 +410,44 @@ func getBranchCommitSHA(branch string) (string, error) {
 	return commit.SHA, nil
 }
 
+func getCommitMessage(sha string) string {
+	if sha == "" {
+		return ""
+	}
+
+	// Try local git if available
+	cmd := exec.Command("git", "log", "-1", "--pretty=%s", sha)
+	if out, err := cmd.Output(); err == nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return truncateMessage(msg)
+		}
+	}
+
+	// Try GitHub API
+	data, err := fetchWithFallback(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, sha))
+	if err == nil {
+		var commitData struct {
+			Commit struct {
+				Message string `json:"message"`
+			} `json:"commit"`
+		}
+		if err := json.Unmarshal(data, &commitData); err == nil {
+			msg := strings.Split(commitData.Commit.Message, "\n")[0]
+			return truncateMessage(msg)
+		}
+	}
+	return ""
+}
+
+func truncateMessage(msg string) string {
+	const maxLen = 60
+	if len(msg) > maxLen {
+		return msg[:maxLen-3] + "..."
+	}
+	return msg
+}
+
 // checkUpdateSilent checks for updates and performs auto-update if enabled.
 // If auto-update is disabled, it prints a notification instead.
 func checkUpdateSilent() {
@@ -673,9 +711,6 @@ func installBinary(srcPath, dstPath string) error {
 		}
 
 		exec.Command("sudo", "chmod", "+x", dstPath).Run()
-		if !verbose {
-			fmt.Println("DONE")
-		}
 		return nil
 	}
 
@@ -1100,10 +1135,6 @@ func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager)
 		return false, fmt.Errorf("building from source: %w", err)
 	}
 
-	if !verbose {
-		fmt.Println("DONE")
-	}
-
 	exePath, _ := os.Executable()
 	if err := installBinary(buildOut, exePath); err != nil {
 		return false, err
@@ -1210,7 +1241,12 @@ var updateCmd = &cobra.Command{
 			}
 
 			if !verbose {
-				fmt.Println("DONE")
+				remoteSHA, _ := getBranchCommitSHA(branch)
+				displaySHA := remoteSHA
+				if len(displaySHA) > 7 {
+					displaySHA = displaySHA[:7]
+				}
+				printSuccess("Upgraded to " + displaySHA + ": " + getCommitMessage(remoteSHA))
 			} else {
 				fmt.Printf("Successfully updated to bleeding-edge %s from source!\n", branch)
 			}
@@ -1313,7 +1349,7 @@ var updateCmd = &cobra.Command{
 		if verbose {
 			fmt.Printf("Successfully updated to %s!\n", latest.TagName)
 		} else {
-			fmt.Println("DONE")
+			printSuccess("Upgraded to " + displaySHA + ": " + getCommitMessage(remoteVer))
 		}
 
 		restartSelf()
