@@ -1176,6 +1176,8 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "/update":
 		m.messages = append(m.messages, systemStyle.Render(" UPDATE ")+"\n"+helpStyle.Render("Checking for latest release in background..."))
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
 		return m, m.updater.CheckUpdateCmd()
 	default:
 		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ")+parts[0])
