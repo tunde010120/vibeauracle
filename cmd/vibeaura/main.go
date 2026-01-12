@@ -228,6 +228,10 @@ var restartCmd = &cobra.Command{
 }
 
 func main() {
+	// Install colorized output for Cobra (affects --help, usage, errors)
+	rootCmd.SetOut(NewColorWriter(os.Stdout))
+	rootCmd.SetErr(NewColorWriter(os.Stderr))
+
 	rootCmd.PersistentFlags().StringVar(&resumeStateFile, "resume-state", "", "Internal use: resume state from file")
 	rootCmd.PersistentFlags().MarkHidden("resume-state")
 

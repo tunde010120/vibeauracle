@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"regexp"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -32,152 +35,175 @@ var (
 
 // CLI Styles - for colorful command-line output
 var (
-	// Headers and titles
-	cliTitle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorPrimary)
+	cliTitle     = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
+	cliSubtitle  = lipgloss.NewStyle().Italic(true).Foreground(ColorSecondary)
+	cliSuccess   = lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess)
+	cliError     = lipgloss.NewStyle().Bold(true).Foreground(ColorError)
+	cliWarning   = lipgloss.NewStyle().Foreground(ColorWarning)
+	cliInfo      = lipgloss.NewStyle().Foreground(ColorInfo)
+	cliLabel     = lipgloss.NewStyle().Foreground(ColorNeon).Bold(true)
+	cliValue     = lipgloss.NewStyle().Foreground(ColorBold)
+	cliMuted     = lipgloss.NewStyle().Foreground(ColorMuted)
+	cliBullet    = lipgloss.NewStyle().Foreground(ColorMagic).Bold(true)
+	cliCommand   = lipgloss.NewStyle().Foreground(ColorSunrise).Bold(true)
+	cliHighlight = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 
-	cliSubtitle = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(ColorSecondary)
-
-	// Status messages
-	cliSuccess = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorSuccess)
-
-	cliError = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorError)
-
-	cliWarning = lipgloss.NewStyle().
-			Foreground(ColorWarning)
-
-	cliInfo = lipgloss.NewStyle().
-		Foreground(ColorInfo)
-
-	// Labels and values
-	cliLabel = lipgloss.NewStyle().
-			Foreground(ColorNeon).
-			Bold(true)
-
-	cliValue = lipgloss.NewStyle().
-			Foreground(ColorBold)
-
-	cliMuted = lipgloss.NewStyle().
-			Foreground(ColorMuted)
-
-	// Special elements
-	cliBullet = lipgloss.NewStyle().
-			Foreground(ColorMagic).
-			Bold(true)
-
-	cliCommand = lipgloss.NewStyle().
-			Foreground(ColorSunrise).
-			Bold(true)
-
-	cliHighlight = lipgloss.NewStyle().
-			Foreground(ColorAccent).
-			Bold(true)
-
-	// Badges
-	cliBadgeSuccess = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#000")).
-			Background(ColorSuccess).
-			Padding(0, 1)
-
-	cliBadgeError = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FFF")).
-			Background(ColorError).
-			Padding(0, 1)
-
-	cliBadgeInfo = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FFF")).
-			Background(ColorInfo).
-			Padding(0, 1)
-
-	cliBadgeWarning = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#000")).
-			Background(ColorWarning).
-			Padding(0, 1)
+	cliBadgeSuccess = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000")).Background(ColorSuccess).Padding(0, 1)
+	cliBadgeError   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFF")).Background(ColorError).Padding(0, 1)
+	cliBadgeInfo    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFF")).Background(ColorInfo).Padding(0, 1)
+	cliBadgeWarning = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000")).Background(ColorWarning).Padding(0, 1)
 )
 
 // ============================================================================
-// MODULAR OUTPUT FUNCTIONS - Use these everywhere for consistent styling
+// COLOR WRITER - Wraps any io.Writer to auto-colorize output
 // ============================================================================
 
-// printTitle prints a styled section title with emoji
+// ColorWriter wraps an io.Writer and applies automatic colorization
+type ColorWriter struct {
+	underlying io.Writer
+}
+
+// NewColorWriter creates a new color-aware writer
+func NewColorWriter(w io.Writer) *ColorWriter {
+	return &ColorWriter{underlying: w}
+}
+
+func (cw *ColorWriter) Write(p []byte) (n int, err error) {
+	lines := strings.Split(string(p), "\n")
+	var output strings.Builder
+
+	for i, line := range lines {
+		coloredLine := colorizeLine(line)
+		output.WriteString(coloredLine)
+		if i < len(lines)-1 {
+			output.WriteString("\n")
+		}
+	}
+
+	written, err := cw.underlying.Write([]byte(output.String()))
+	// Return original length to satisfy Write contract
+	if err == nil {
+		return len(p), nil
+	}
+	return written, err
+}
+
+// Regex patterns for colorization (compiled once)
+var (
+	reFlag        = regexp.MustCompile(`(\s)(--?[a-zA-Z][-a-zA-Z0-9]*)`)
+	reCommand     = regexp.MustCompile(`(vibeaura(?:\s+[a-z]+)+)`)
+	reHeader      = regexp.MustCompile(`^([A-Z][a-zA-Z ]+:)\s*$`)
+	reURL         = regexp.MustCompile(`(https?://[^\s]+)`)
+	reQuoted      = regexp.MustCompile(`("[^"]*")`)
+	rePlaceholder = regexp.MustCompile(`(<[^>]+>)`)
+	reOptional    = regexp.MustCompile(`(\[[^\]]+\])`)
+)
+
+func colorizeLine(line string) string {
+	// Skip already-colored lines (contain ANSI escape codes)
+	if strings.Contains(line, "\x1b[") {
+		return line
+	}
+
+	// Section headers get full treatment
+	if reHeader.MatchString(strings.TrimSpace(line)) {
+		return lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render(line)
+	}
+
+	result := line
+
+	// Colorize flags (--help, -v, etc)
+	result = reFlag.ReplaceAllStringFunc(result, func(m string) string {
+		parts := reFlag.FindStringSubmatch(m)
+		if len(parts) >= 3 {
+			return parts[1] + lipgloss.NewStyle().Foreground(ColorNeon).Render(parts[2])
+		}
+		return m
+	})
+
+	// Colorize commands
+	result = reCommand.ReplaceAllStringFunc(result, func(m string) string {
+		return lipgloss.NewStyle().Foreground(ColorSunrise).Bold(true).Render(m)
+	})
+
+	// Colorize URLs
+	result = reURL.ReplaceAllStringFunc(result, func(m string) string {
+		return lipgloss.NewStyle().Foreground(ColorInfo).Underline(true).Render(m)
+	})
+
+	// Colorize quoted strings
+	result = reQuoted.ReplaceAllStringFunc(result, func(m string) string {
+		return lipgloss.NewStyle().Foreground(ColorAccent).Render(m)
+	})
+
+	// Colorize <placeholders>
+	result = rePlaceholder.ReplaceAllStringFunc(result, func(m string) string {
+		return lipgloss.NewStyle().Foreground(ColorMagic).Italic(true).Render(m)
+	})
+
+	// Colorize [optional]
+	result = reOptional.ReplaceAllStringFunc(result, func(m string) string {
+		return lipgloss.NewStyle().Foreground(ColorMuted).Render(m)
+	})
+
+	return result
+}
+
+// ============================================================================
+// MODULAR OUTPUT FUNCTIONS - Use these for explicit colorful output
+// ============================================================================
+
 func printTitle(emoji, title string) {
 	fmt.Println()
 	fmt.Println(cliTitle.Render(emoji + " " + title))
 	fmt.Println(cliMuted.Render("─────────────────────────────────────────────"))
 }
 
-// printKeyValue prints a labeled value (key: value format)
 func printKeyValue(key, value string) {
 	fmt.Printf("%s %s\n", cliLabel.Render(key+":"), cliValue.Render(value))
 }
 
-// printKeyValueHighlight prints a labeled value with highlighted value
 func printKeyValueHighlight(key, value string) {
 	fmt.Printf("%s %s\n", cliLabel.Render(key+":"), cliHighlight.Render(value))
 }
 
-// printSuccess prints a success message with badge
 func printSuccess(message string) {
 	fmt.Println(cliBadgeSuccess.Render("SUCCESS") + " " + cliSuccess.Render(message))
 }
 
-// printError prints an error message with badge
 func printError(message string) {
 	fmt.Println(cliBadgeError.Render("ERROR") + " " + cliError.Render(message))
 }
 
-// printInfo prints an info message
 func printInfo(message string) {
 	fmt.Println(cliInfo.Render("ℹ️  " + message))
 }
 
-// printWarning prints a warning message
 func printWarning(message string) {
 	fmt.Println(cliWarning.Render("⚠️  " + message))
 }
 
-// printBullet prints a bulleted list item
 func printBullet(text string) {
 	fmt.Println(cliBullet.Render("●") + " " + cliValue.Render(text))
 }
 
-// printBulletWithMeta prints a bullet with additional metadata
 func printBulletWithMeta(text, meta string) {
-	fmt.Printf("%s %s %s\n",
-		cliBullet.Render("●"),
-		cliValue.Render(text),
-		cliMuted.Render("("+meta+")"),
-	)
+	fmt.Printf("%s %s %s\n", cliBullet.Render("●"), cliValue.Render(text), cliMuted.Render("("+meta+")"))
 }
 
-// printCommand prints a command hint
 func printCommand(prefix, cmd, suffix string) {
 	fmt.Println(cliInfo.Render(prefix) + " " + cliCommand.Render(cmd) + " " + cliInfo.Render(suffix))
 }
 
-// printStatus prints a status with badge
 func printStatus(badge, message string) {
 	fmt.Println(cliBadgeInfo.Render(badge) + " " + cliValue.Render(message))
 }
 
-// printDone prints completion message
 func printDone() {
 	fmt.Println()
 	fmt.Println(cliSuccess.Render("✓ Done"))
 }
 
-// printNewline prints an empty line
 func printNewline() {
 	fmt.Println()
 }
