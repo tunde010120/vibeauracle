@@ -1,6 +1,6 @@
 module github.com/nathfavour/vibeauracle/internal/doctor
 
-go 1.25.5
+go 1.21
 
 require github.com/nathfavour/vibeauracle/sys v0.0.0
 
