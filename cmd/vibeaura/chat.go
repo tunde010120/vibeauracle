@@ -290,7 +290,17 @@ func initialModel(b *brain.Brain) *model {
 
 				// Append a system note about the update
 				ensureBanner(&m.messages, banner)
-				m.messages = append(m.messages, subtleStyle.Render("⚡ Hot swap complete. Session restored."))
+
+				updateMsg := lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("62")).
+					Padding(0, 1).
+					Foreground(lipgloss.Color("10")).
+					Render(fmt.Sprintf("⚡ UPDATED TO %s", "LATEST")) // We don't have the hash here easily unless we passed it.
+
+				// Better: We can pass the new version in the state file too!
+
+				m.messages = append(m.messages, updateMsg)
 
 				m.viewport.SetContent(m.renderMessages())
 				m.viewport.GotoBottom()
