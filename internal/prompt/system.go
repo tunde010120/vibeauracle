@@ -141,9 +141,35 @@ func (s *System) compose(intent Intent, layers []string, recall string, snapshot
 	b.WriteString(fmt.Sprintf("CWD: %s\nCPU: %.2f%%\nMEM: %.2f%%\n", snapshot.WorkingDir, snapshot.CPUUsage, snapshot.MemoryUsage))
 
 	if strings.TrimSpace(toolDefs) != "" {
-		b.WriteString("\nAVAILABLE TOOLS (ACTION REQUIRED):\n")
+		b.WriteString("\nAVAILABLE TOOLS:\n")
 		b.WriteString(toolDefs)
-		b.WriteString("\nYou are an ACTION-FIRST agent. If the user request implies `creating`, `reading`, or `modifying` files, you MUST use the provided tools immediately. Do not ask for permission unless the tool explicitly requires it. Do not just list files if asked to create them. EXECUTE. WE are in " + snapshot.WorkingDir + ". Assume this is the project root unless specified otherwise.")
+		b.WriteString(`
+HOW TO USE TOOLS:
+You are an AGENTIC assistant. You MUST use tools to complete tasks. Do NOT just describe what you would do - ACTUALLY DO IT.
+
+To invoke a tool, output a JSON code block with the following format:
+` + "```json" + `
+{"tool": "TOOL_NAME", "parameters": {"param1": "value1", "param2": "value2"}}
+` + "```" + `
+
+EXAMPLE - To create a file:
+` + "```json" + `
+{"tool": "sys_write_file", "parameters": {"path": "deployment.yaml", "content": "apiVersion: apps/v1\nkind: Deployment..."}}
+` + "```" + `
+
+EXAMPLE - To read a file:
+` + "```json" + `
+{"tool": "sys_read_file", "parameters": {"path": "README.md"}}
+` + "```" + `
+
+CRITICAL RULES:
+1. DO NOT ask for permission to use tools - just use them.
+2. DO NOT say "I will now create the file" - instead, OUTPUT THE JSON TOOL CALL.
+3. If the user asks you to create/modify/read files, you MUST output a tool call.
+4. After the tool executes, you will receive the result and can continue.
+5. Current working directory is: ` + snapshot.WorkingDir + `
+
+`)
 	}
 
 	b.WriteString("\nUSER PROMPT:\n")

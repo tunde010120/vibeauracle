@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"time"
@@ -10,6 +11,16 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nathfavour/vibeauracle/sys"
 )
+
+// execGitCommand runs a git command and returns stdout.
+func execGitCommand(args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
 
 // --- Async Hot-Swap Logic ---
 
@@ -31,36 +42,118 @@ func NewAsyncUpdateManager() *AsyncUpdateManager {
 }
 
 // CheckUpdateCmd returns a command that checks for updates in the background.
-func (chk *AsyncUpdateManager) CheckUpdateCmd() tea.Cmd {
+func (chk *AsyncUpdateManager) CheckUpdateCmd(manual bool) tea.Cmd {
 	return func() tea.Msg {
-		// Artificial delay to not slam CPU on startup
-		time.Sleep(5 * time.Second)
-
-		chk.cm, _ = sys.NewConfigManager() // Reload config
-		cfg, _ := chk.cm.Load()
-
-		if !cfg.Update.AutoUpdate {
-			return nil
+		// Initial startup delay for background checks
+		if !manual {
+			time.Sleep(5 * time.Second)
 		}
 
-		// Use existing logic from update.go
-		latest, err := getLatestRelease("")
-		if cfg.Update.Beta {
-			latest, err = getLatestRelease("beta")
-		}
+		for {
+			chk.cm, _ = sys.NewConfigManager() // Reload config
+			cfg, _ := chk.cm.Load()
 
-		if err == nil && isUpdateAvailable(latest, true) {
-			// Don't auto-update failed commits
-			for _, failed := range cfg.Update.FailedCommits {
-				if failed == latest.ActualSHA {
-					return nil
+			// Manual updates always proceed; AutoUpdate setting is only for background.
+			if manual || cfg.Update.AutoUpdate {
+				updateAvailable, latest := checkForUpdateSimple(cfg)
+				if updateAvailable && latest != nil {
+					// Don't auto-update failed commits
+					failed := false
+					for _, f := range cfg.Update.FailedCommits {
+						if f == latest.ActualSHA {
+							failed = true
+							break
+						}
+					}
+					if !failed {
+						return UpdateAvailableMsg{Latest: latest}
+					}
 				}
 			}
-			return UpdateAvailableMsg{Latest: latest}
+
+			// If it's a manual check and we got here, no update was found or something failed.
+			if manual {
+				return UpdateNoUpdateMsg{}
+			}
+
+			// Wait 30 minutes before checking again
+			time.Sleep(30 * time.Minute)
 		}
-		return nil
 	}
 }
+
+// checkForUpdateSimple is a straightforward update check.
+// It fetches the local git HEAD and compares it to the remote.
+// Returns (updateAvailable, releaseInfo).
+func checkForUpdateSimple(cfg *sys.Config) (bool, *releaseInfo) {
+	// 1. Get local commit (try git first, fall back to embedded Commit var)
+	localSHA := getLocalCommit()
+	if localSHA == "" {
+		// Can't determine local state, assume no update
+		return false, nil
+	}
+
+	// 2. Get remote commit based on update channel
+	var remoteSHA string
+	var branch string
+
+	if cfg.Update.BuildFromSource || cfg.Update.Beta {
+		// Source builds track branches
+		branch = "release"
+		if cfg.Update.Beta {
+			branch = "master"
+		}
+		sha, err := getBranchCommitSHA(branch)
+		if err != nil {
+			return false, nil
+		}
+		remoteSHA = sha
+	} else {
+		// Stable binary: check latest release
+		latest, err := getLatestRelease("")
+		if err != nil || latest == nil {
+			return false, nil
+		}
+		// For releases, we use the actual SHA
+		remoteSHA = latest.ActualSHA
+		if remoteSHA == "" {
+			return false, nil
+		}
+		// Direct comparison
+		if remoteSHA != localSHA {
+			return true, latest
+		}
+		return false, nil
+	}
+
+	// 3. Simple comparison
+	if remoteSHA != localSHA {
+		return true, &releaseInfo{
+			TagName:   branch,
+			ActualSHA: remoteSHA,
+		}
+	}
+
+	return false, nil
+}
+
+// getLocalCommit tries to get the current commit hash.
+// First tries `git rev-parse HEAD`, falls back to embedded Commit variable.
+func getLocalCommit() string {
+	// Try git first (most accurate for dev/source builds)
+	if out, err := execGitCommand("rev-parse", "HEAD"); err == nil {
+		return strings.TrimSpace(out)
+	}
+
+	// Fall back to embedded commit (for installed binaries)
+	if Commit != "" && Commit != "none" {
+		return Commit
+	}
+
+	return ""
+}
+
+type UpdateNoUpdateMsg struct{}
 
 // DownloadUpdateCmd downloads the update in background
 func (chk *AsyncUpdateManager) DownloadUpdateCmd(latest *releaseInfo) tea.Cmd {

@@ -131,7 +131,7 @@ type chatState struct {
 }
 
 var allCommands = []string{
-	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth", "/mcp", "/sys", "/skill", "/models",
+	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth", "/mcp", "/sys", "/skill", "/models", "/update", "/restart",
 }
 
 var subCommands = map[string][]string{
@@ -334,7 +334,7 @@ func initialModel(b *brain.Brain) *model {
 func (m *model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
-		m.updater.CheckUpdateCmd(),
+		m.updater.CheckUpdateCmd(false), // Background check
 	)
 }
 
@@ -436,6 +436,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case brain.Response:
+		m.isThinking = false
 		if msg.Error != nil {
 			m.messages = append(m.messages, errorStyle.Render(" BRAIN ERROR ")+"\n"+msg.Error.Error())
 		} else {
@@ -463,21 +464,29 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case UpdateAvailableMsg:
 		// Start download immediately
 		m.updateVersion = msg.Latest.TagName
+		m.messages = append(m.messages, subtleStyle.Render("⬇️  New version found. Downloading..."))
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
 		return m, m.updater.DownloadUpdateCmd(msg.Latest)
 
 	case UpdateReadyMsg:
 		m.updateReady = true
+		m.messages = append(m.messages, systemStyle.Render(" UPDATE READY ")+"\n"+helpStyle.Render("A new version has been downloaded. Please restart vibeaura to apply."))
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+
+	case UpdateNoUpdateMsg:
+		m.messages = append(m.messages, subtleStyle.Render("✅  Vibeauracle is already up to date."))
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
 	}
 
 	// 5. Check for Hot-Swap Opportunity
+	// DISABLED: Hot-swap is disabled until a release binary with --resume-state support is published.
+	// The user will be prompted to restart manually after an update is downloaded.
 	if m.updateReady && !m.isThinking {
-		// Only swap if user is not actively typing a complex command?
-		// Or just do it. The request says "rapidly within this time frame".
-		// We'll treat !isThinking as the main gap.
-		// Also maybe check if input is empty to be polite.
-		if m.textarea.Value() == "" {
-			PerformHotSwap(m.messages, m.textarea.Value())
-		}
+		// No-op for now; the "Update ready" message is already shown.
+		// User can restart manually.
 	}
 
 	return m, tea.Batch(tiCmd, vpCmd, eaCmd, pvCmd)
@@ -545,6 +554,7 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		m.saveState()
+		m.isThinking = true
 		return m, m.processRequest(v)
 	default:
 		val := m.textarea.Value()
@@ -1138,7 +1148,7 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 
 	switch parts[0] {
 	case "/help":
-		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /mcp     - Manage MCP tools & servers\n• /skill   - Manage agentic vibes/skills\n• /sys     - Hardware & system details\n• /auth    - Manage AI provider credentials\n• /shot    - Take a beautiful TUI screenshot\n• /cwd     - Show current directory\n• /version - Show version info\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
+		m.messages = append(m.messages, systemStyle.Render(" COMMANDS ")+"\n"+helpStyle.Render("• /help    - Show this list\n• /status  - System resource snapshot\n• /mcp     - Manage MCP tools & servers\n• /skill   - Manage agentic vibes/skills\n• /sys     - Hardware & system details\n• /auth    - Manage AI provider credentials\n• /shot    - Take a beautiful TUI screenshot\n• /cwd     - Show current directory\n• /version - Show version info\n• /update  - Check for updates immediately\n• /restart - Restart vibeauracle\n• /clear   - Clear chat history\n• /exit    - Quit vibeauracle"))
 	case "/status":
 		snapshot, _ := m.brain.GetSnapshot()
 		status := fmt.Sprintf(systemStyle.Render(" SYSTEM ")+"\n"+helpStyle.Render("CPU: %.1f%% | Mem: %.1f%%"), snapshot.CPUUsage, snapshot.MemoryUsage)
@@ -1174,6 +1184,15 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "/exit":
 		return m, tea.Quit
+	case "/update":
+		m.messages = append(m.messages, systemStyle.Render(" UPDATE ")+"\n"+helpStyle.Render("Checking for latest release..."))
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, m.updater.CheckUpdateCmd(true) // Manual
+	case "/restart":
+		m.saveState()
+		restartSelf()
+		return m, tea.Quit // Fallback if restartSelf doesn't exec
 	default:
 		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ")+parts[0])
 	}

@@ -35,15 +35,16 @@ Keys:
 		}
 
 		if len(args) == 0 {
-			fmt.Printf("Current Configuration:\n")
-			fmt.Printf("  update.beta:             %v\n", cfg.Update.Beta)
-			fmt.Printf("  update.build_from_source: %v\n", cfg.Update.BuildFromSource)
-			fmt.Printf("  update.auto_update:      %v\n", cfg.Update.AutoUpdate)
-			fmt.Printf("  update.verbose:          %v\n", cfg.Update.Verbose)
-			fmt.Printf("  model.provider:          %s\n", cfg.Model.Provider)
-			fmt.Printf("  model.name:              %s\n", cfg.Model.Name)
-			fmt.Printf("  model.endpoint:          %s\n", cfg.Model.Endpoint)
-			fmt.Printf("  ui.theme:                %s\n", cfg.UI.Theme)
+			printTitle("⚙️", "CONFIGURATION")
+			printKeyValue("update.beta            ", fmt.Sprintf("%v", cfg.Update.Beta))
+			printKeyValue("update.build_from_source", fmt.Sprintf("%v", cfg.Update.BuildFromSource))
+			printKeyValueHighlight("update.auto_update     ", fmt.Sprintf("%v", cfg.Update.AutoUpdate))
+			printKeyValue("update.verbose         ", fmt.Sprintf("%v", cfg.Update.Verbose))
+			printKeyValue("model.provider         ", cfg.Model.Provider)
+			printKeyValueHighlight("model.name             ", cfg.Model.Name)
+			printKeyValue("model.endpoint         ", cfg.Model.Endpoint)
+			printKeyValue("ui.theme               ", cfg.UI.Theme)
+			printNewline()
 			return nil
 		}
 
@@ -114,7 +115,7 @@ Keys:
 			return fmt.Errorf("saving config: %w", err)
 		}
 
-		fmt.Printf("✅ Config set %s = %s\n", key, value)
+		printStatus("SET", key+" → "+value)
 		return nil
 	},
 }
@@ -122,4 +123,3 @@ Keys:
 func init() {
 	rootCmd.AddCommand(configCmd)
 }
-

@@ -334,6 +334,9 @@ func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 		return false
 	}
 
+	// If we don't know our own commit, we can't do SHA-based comparison
+	localCommitUnknown := Commit == "" || Commit == "none"
+
 	// 1. Try Semantic Versioning comparison
 	vLocal := Version
 	if !strings.HasPrefix(vLocal, "v") && semver.IsValid("v"+vLocal) {
@@ -348,20 +351,40 @@ func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 		return semver.Compare(vRemote, vLocal) > 0
 	}
 
-	// 2. Rolling tags logic (latest/beta)
+	// 2. Rolling tags logic (latest/beta/branch names)
 	// If the tags match, we MUST compare SHAs to know if there's a new build.
-	if latest.TagName == Version {
+	if latest.TagName == Version && Version != "" && Version != "dev" {
+		if localCommitUnknown {
+			// Can't compare SHAs, assume up-to-date
+			return false
+		}
 		return latest.ActualSHA != "" && latest.ActualSHA != Commit
 	}
 
-	// 3. Fallback: if we are in a dev build, we usually don't want auto-update prompts
-	// when in silent mode (startup check).
+	// 3. Dev builds: skip auto-update in silent mode
 	if silent && (Version == "dev" || strings.HasPrefix(Version, "dev-")) {
 		return false
 	}
 
-	// 4. Default fallback: if names differ and aren't semver, it's likely an update
-	return true
+	// 4. If version names differ and we're not on a dev build, it might be an update
+	// But only if we can actually verify via SHA
+	if latest.TagName != Version {
+		// For dev builds, don't report updates unless manual
+		if Version == "dev" || strings.HasPrefix(Version, "dev-") {
+			return !silent // Only report if manual check
+		}
+		// For other mismatches, check SHA
+		if localCommitUnknown {
+			return false // Can't verify
+		}
+		return latest.ActualSHA != Commit
+	}
+
+	// Same version, compare SHAs
+	if localCommitUnknown {
+		return false
+	}
+	return latest.ActualSHA != "" && latest.ActualSHA != Commit
 }
 
 func getBranchCommitSHA(branch string) (string, error) {
@@ -387,8 +410,8 @@ func getBranchCommitSHA(branch string) (string, error) {
 	return commit.SHA, nil
 }
 
-// checkUpdateSilent checks for updates and prints a message if one is available.
-// If auto-update is enabled, it attempts to update quietly.
+// checkUpdateSilent checks for updates and performs auto-update if enabled.
+// If auto-update is disabled, it prints a notification instead.
 func checkUpdateSilent() {
 	cm, err := sys.NewConfigManager()
 	if err != nil {
@@ -403,26 +426,34 @@ func checkUpdateSilent() {
 	buildFromSource := cfg.Update.BuildFromSource || useBeta
 	autoUpdate := cfg.Update.AutoUpdate
 
+	// Dev builds without explicit source/beta config should not auto-update
+	// But if BuildFromSource or Beta is set, we should still check
+	isDev := Version == "dev" || strings.HasPrefix(Version, "dev-")
+	if isDev && !buildFromSource && !useBeta {
+		return
+	}
+
 	var latestSHA string
 	var latestTag string
 	var channel string
 	var latest *releaseInfo
 
-	if useBeta && !buildFromSource {
+	if buildFromSource || isDev {
+		// Source builds (including dev) track branches directly
+		branch := "release"
+		if useBeta || strings.HasSuffix(Version, "-master") {
+			branch = "master"
+		}
+		latestSHA, _ = getBranchCommitSHA(branch)
+		latestTag = branch
+		channel = "Source (" + branch + ")"
+	} else if useBeta {
 		latest, err = getLatestRelease("beta")
 		if err == nil && isUpdateAvailable(latest, true) {
 			latestSHA = latest.ActualSHA
 			latestTag = latest.TagName
 			channel = "Beta"
 		}
-	} else if buildFromSource {
-		branch := "release"
-		if useBeta {
-			branch = "master"
-		}
-		latestSHA, _ = getBranchCommitSHA(branch)
-		latestTag = branch
-		channel = "Source (" + branch + ")"
 	} else {
 		latest, err = getLatestRelease("")
 		if err == nil && isUpdateAvailable(latest, true) {
@@ -433,10 +464,10 @@ func checkUpdateSilent() {
 	}
 
 	if latestSHA != "" && latestSHA != Commit {
-		// Check if this commit has previously failed to build
+		// Check if this commit has previously failed
 		for _, failed := range cfg.Update.FailedCommits {
 			if failed == latestSHA {
-				return // Don't nag or auto-update for a known failed commit
+				return
 			}
 		}
 
@@ -447,37 +478,30 @@ func checkUpdateSilent() {
 				if useBeta {
 					branch = "master"
 				}
-				// We run this in a way that doesn't block the main tool too much,
-				// but since it's "integrated", we'll just run it.
-				// Note: installBinary might request sudo, which isn't exactly "quiet".
-				// But for many users (like in /usr/local/bin), they will see the sudo prompt.
 				updated, err := updateFromSource(branch, cm)
 				if err == nil && updated {
 					restartSelf()
 				} else if err != nil {
-					// Mark as failed so we don't try again
 					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
 					cm.Save(cfg)
 				}
 			} else if latest != nil {
-				// Stable/Beta binary update
 				err := performBinaryUpdate(latest)
 				if err == nil {
 					restartSelf()
 				} else {
-					// Binary updates usually don't "fail" in the same way builds do,
-					// but we'll mark it anyway if it does.
 					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
 					cm.Save(cfg)
 				}
 			}
-			return // After auto-update, no need to print notification
+			return
 		}
 
-		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)       // Bright Green
-		styleChannel := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Italic(true) // Bright Blue
-		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)       // Bright Yellow
-		styleDim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))                   // Gray
+		// Auto-update is disabled: print notification
+		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+		styleChannel := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Italic(true)
+		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+		styleDim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 		displayLatestSHA := latestSHA
 		if len(displayLatestSHA) >= 7 {
@@ -629,8 +653,6 @@ func installBinary(srcPath, dstPath string) error {
 	if needsSudo {
 		if verbose {
 			fmt.Printf("Permission denied or busy. Trying with sudo to install to %s...\n", dstPath)
-		} else {
-			fmt.Print("🔒  Elevating for installation... ")
 		}
 
 		// Use 'rm -f' first to avoid ETXTBSY (Text file busy)
@@ -638,11 +660,13 @@ func installBinary(srcPath, dstPath string) error {
 		exec.Command("sudo", "rm", "-f", dstPath).Run()
 
 		sudoCp := exec.Command("sudo", "cp", srcPath, dstPath)
-		sudoCp.Stdout = os.Stdout
-		sudoCp.Stderr = os.Stderr
+		if verbose {
+			sudoCp.Stdout = os.Stdout
+			sudoCp.Stderr = os.Stderr
+		}
 		sudoCp.Stdin = os.Stdin
 		if err := sudoCp.Run(); err != nil {
-			if !verbose {
+			if verbose {
 				fmt.Println("FAILED")
 			}
 			return fmt.Errorf("replacing binary with sudo: %w", err)
@@ -787,14 +811,8 @@ func ensureInstalled() {
 	migrated := false
 	// 2. If we are NOT running from the target path, we need to move there
 	if realExe != targetPath {
-		fmt.Printf("🏠  %s migrating to universal path (%s)...\n",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Render("vibeaura"),
-			targetPath,
-		)
-
-		if err := installBinary(realExe, targetPath); err != nil {
-			fmt.Printf("❌  Failed to install to universal path: %v\n", err)
-		} else {
+		// Quietly attempt to migrate
+		if err := installBinary(realExe, targetPath); err == nil {
 			migrated = true
 		}
 	}
@@ -820,18 +838,17 @@ func ensureInstalled() {
 	// 5. If we migrated or cleaned up, we should ideally hand off to the target process
 	if migrated || removedAny || updatedPath {
 		if migrated {
-			styleSuccess := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-			fmt.Println(styleSuccess.Render("✅  Universal environment setup complete."))
-
-			if runtime.GOOS == "windows" {
-				fmt.Println("\n👉 Since you are on Windows, please close this window and run 'vibeaura' from a new terminal.")
-				fmt.Println("Press Enter to exit...")
-				var dummy string
-				fmt.Scanln(&dummy)
-				os.Exit(0)
-			}
-			restartWithArgs(os.Args)
+			// Silence is golden.
 		}
+
+		if runtime.GOOS == "windows" {
+			fmt.Println("\n👉 Since you are on Windows, please close this window and run 'vibeaura' from a new terminal.")
+			fmt.Println("Press Enter to exit...")
+			var dummy string
+			fmt.Scanln(&dummy)
+			os.Exit(0)
+		}
+		restartWithArgs(os.Args)
 	}
 }
 
