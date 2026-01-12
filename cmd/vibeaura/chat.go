@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -265,9 +266,33 @@ func initialModel(b *brain.Brain) *model {
 	}
 
 	// Load initial tree
+	// Load initial tree
 	m.loadTree(cwd)
 
 	// Attempt to restore state
+	// Priority 1: Hot-Swap State (explicit file path)
+	if resumeStateFile != "" {
+		content, err := os.ReadFile(resumeStateFile)
+		if err == nil {
+			var state chatState
+			if json.Unmarshal(content, &state) == nil {
+				m.messages = state.Messages
+				m.textarea.SetValue(state.Input)
+				// Clean up the temp file
+				os.Remove(resumeStateFile)
+
+				// Append a system note about the update
+				ensureBanner(&m.messages, banner)
+				m.messages = append(m.messages, subtleStyle.Render("⚡ Hot swap complete. Session restored."))
+
+				m.viewport.SetContent(m.renderMessages())
+				m.viewport.GotoBottom()
+				return m
+			}
+		}
+	}
+
+	// Priority 2: Persistent Session State (Brain Memory)
 	var state chatState
 	if err := b.RecallState("chat_session", &state); err == nil && len(state.Messages) > 0 {
 		m.messages = state.Messages
