@@ -4,6 +4,7 @@
 package watcher
 
 import (
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -132,14 +133,12 @@ func (w *Watcher) AddRoot(path string) error {
 }
 
 func (w *Watcher) addRecursive(root string) error {
-	return filepath.WalkDir(root, func(path string, d any, err error) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
 
-		// Check if it's a directory
-		info, ok := d.(interface{ IsDir() bool })
-		if !ok || !info.IsDir() {
+		if !d.IsDir() {
 			return nil
 		}
 
