@@ -53,6 +53,10 @@ type model struct {
 	allModelDiscoveries []brain.ModelDiscovery
 	suggestionFilter    string
 	isFilteringModels   bool
+
+	// Thinking / Agentic Process State
+	thinkingLog []StatusEvent
+	isThinking  bool
 }
 
 var (
@@ -254,7 +258,7 @@ func initialModel(b *brain.Brain) *model {
 		currentPath: cwd,
 		showTree:    true, // Show tree by default
 		banner:      banner,
-		
+
 		// Thinking / Agentic Process State
 		thinkingLog: []StatusEvent{},
 		isThinking:  false,
@@ -435,7 +439,7 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// ALWAYS allow viewport scrolling via arrow keys if textarea is on the first/last line
 	// or empty, though textarea handles internal navigation.
-	// To be safer and match user request perfectly: if focus is Chat, 
+	// To be safer and match user request perfectly: if focus is Chat,
 	// and they aren't nav-ing suggestions, arrows should at least scroll if empty.
 	if m.textarea.Value() == "" {
 		switch msg.String() {
@@ -481,7 +485,7 @@ func (m *model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		val := m.textarea.Value()
 		m.updateSuggestions(val)
-		
+
 		// If we just typed /models /use, trigger model discovery if empty
 		if strings.HasSuffix(val, "/models /use ") && len(m.allModelDiscoveries) == 0 {
 			return m, m.discoverModels()
@@ -631,7 +635,7 @@ func (m *model) renderMessages() string {
 			} else if log.Step == "reflect" {
 				color = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Green for success/reflection
 			}
-			
+
 			line := fmt.Sprintf("  %s %s: %s", log.Icon, log.Step, log.Message)
 			sb.WriteString(color.Render(line) + "\n")
 		}
@@ -706,12 +710,12 @@ func (m *model) updateSuggestions(val string) {
 		if len(m.allModelDiscoveries) == 0 {
 			// Trigger discovery
 			go func() {
-				// We can't return Cmd here, so we'll just wait for the next Update cycle 
+				// We can't return Cmd here, so we'll just wait for the next Update cycle
 				// if we were in a proper Msg flow, but here we are in a helper.
 				// Better to trigger this from handleChatKey or applySuggestion.
 			}()
 		}
-		
+
 		// Everything after "/models /use " is the filter
 		parts := strings.Split(val, "/models /use")
 		filter := ""
@@ -757,7 +761,7 @@ func (m *model) updateSuggestions(val string) {
 	}
 
 	lastWord := words[len(words)-1]
-	
+
 	// Check if we are typing a subcommand
 	if len(words) > 1 {
 		parentCmd := words[0]
@@ -821,6 +825,9 @@ func (m *model) getFileSuggestions(prefix string) []string {
 	})
 
 	sort.Strings(suggestions)
+	return suggestions
+}
+
 // StatusEvent represents a step in the agent's reasoning or execution
 type StatusEvent struct {
 	Icon    string
@@ -868,7 +875,7 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 		parts := strings.Split(suggestion, "|")
 		provider := parts[0]
 		modelName := parts[1]
-		
+
 		// Set the exact command
 		m.textarea.SetValue(fmt.Sprintf("/models /use %s %s", provider, modelName))
 		m.textarea.SetCursor(len(m.textarea.Value()))
@@ -897,7 +904,7 @@ func (m *model) applySuggestion() (tea.Model, tea.Cmd) {
 			m.textarea.SetValue(replacement)
 		}
 	}
-	
+
 	m.textarea.SetCursor(len(m.textarea.Value()))
 	m.suggestions = nil
 
@@ -1055,8 +1062,8 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 			if isSub {
 				m.messages = append(m.messages,
 					systemStyle.Render(" COMMAND ")+"\n"+
-					helpStyle.Render("That is a subcommand and can’t be run by itself.")+"\n"+
-					helpStyle.Render("Example: /models /list"),
+						helpStyle.Render("That is a subcommand and can’t be run by itself.")+"\n"+
+						helpStyle.Render("Example: /models /list"),
 				)
 				m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 				m.viewport.GotoBottom()
@@ -1196,8 +1203,8 @@ func (m *model) handleModelsCommand(parts []string) (tea.Model, tea.Cmd) {
 				sb.WriteString(helpStyle.Render("No models found. Check /auth to configure providers."))
 			} else {
 				for _, d := range discoveries {
-					sb.WriteString(fmt.Sprintf("%s %s\n", 
-						aiStyle.Render("• "+d.Name), 
+					sb.WriteString(fmt.Sprintf("%s %s\n",
+						aiStyle.Render("• "+d.Name),
 						subtleStyle.Render("("+d.Provider+")")))
 				}
 				sb.WriteString("\n" + helpStyle.Render("Use /models /use <provider> <model> to switch."))
@@ -1392,7 +1399,7 @@ func (m *model) renderSuggestions() string {
 			Render("🔍 Filter: " + m.suggestionFilter + "█")
 		rows = append(rows, filterHeader)
 		rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#444444")).Render(strings.Repeat("─", width)))
-		
+
 		if len(m.allModelDiscoveries) == 0 {
 			rows = append(rows, subtleStyle.Width(width).Render("  Discovering models..."))
 		}
@@ -1478,4 +1485,3 @@ func (m *model) pullOllamaModel(name string) tea.Cmd {
 }
 
 // End of file
-```
