@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# vibeauracle Universal Installer
+# vibe auracle Universal Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.sh | bash
 
 set -e
@@ -58,7 +58,7 @@ fi
 if [ -z "$LATEST_TAG" ]; then
     # Fallback to API if git failed or wasn't found
     TMP_ERR=$(mktemp)
-    TAG_DATA=$(curl -fsSL -H "User-Agent: vibeauracle-installer" "https://api.github.com/repos/$REPO/releases" 2>"$TMP_ERR" || true)
+    TAG_DATA=$(curl -fsSL -H "User-Agent: vibe-auracle-installer" "https://api.github.com/repos/$REPO/releases" 2>"$TMP_ERR" || true)
 
     if [ -n "$TAG_DATA" ]; then
         LATEST_TAG=$(echo "$TAG_DATA" | grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
@@ -128,7 +128,7 @@ else
 fi
 
 chmod +x "$INSTALL_DIR/vibeaura"
-echo "Successfully installed vibeauracle to $INSTALL_DIR/vibeaura"
+echo "Successfully installed vibe auracle to $INSTALL_DIR/vibeaura"
 
 # Auto-add to PATH
 SHELL_RC=""
@@ -145,7 +145,7 @@ fi
 if [ -n "$SHELL_RC" ]; then
     if ! grep -q "$INSTALL_DIR" "$SHELL_RC" 2>/dev/null; then
         echo "" >> "$SHELL_RC"
-        echo "# vibeauracle path" >> "$SHELL_RC"
+        echo "# vibe auracle path" >> "$SHELL_RC"
         echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$SHELL_RC"
         echo "Added $INSTALL_DIR to $SHELL_RC"
     fi

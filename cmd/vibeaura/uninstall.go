@@ -17,7 +17,7 @@ var uninstallCmd = &cobra.Command{
 By default, the application data directory (~/.vibeauracle) is preserved. 
 Use the --clean flag to wipe everything.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		printTitle("🗑️", "UNINSTALL VIBEAURACLE")
+		printTitle("🗑️", "UNINSTALL VIBE AURACLE")
 
 		// 1. Get binary path
 		exePath, err := os.Executable()

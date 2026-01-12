@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config holds all configuration for vibeauracle
+// Config holds all configuration for vibe auracle
 type Config struct {
 	Model struct {
 		Provider string `mapstructure:"provider"`

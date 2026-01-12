@@ -1,11 +1,11 @@
-import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
+import { themes as prismThemes } from 'prism-react-renderer';
+import type { Config } from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'vibeauracle',
+  title: 'vibe auracle',
   tagline: 'Distributed, System-Intimate AI Engineering Ecosystem',
   favicon: 'img/favicon.ico',
 
@@ -76,9 +76,9 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'vibeauracle',
+      title: 'vibe auracle',
       logo: {
-        alt: 'vibeauracle Logo',
+        alt: 'vibe auracle Logo',
         src: 'img/logo.svg',
       },
       items: [
@@ -88,7 +88,7 @@ const config: Config = {
           position: 'left',
           label: 'Tutorial',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
+        { to: '/blog', label: 'Blog', position: 'left' },
         {
           href: 'https://github.com/nathfavour/vibeauracle',
           label: 'GitHub',
@@ -139,7 +139,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} vibeauracle. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} vibe auracle. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,

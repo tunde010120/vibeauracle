@@ -94,7 +94,7 @@ func (s *System) layers(intent Intent) []string {
 	layers := []string{}
 
 	// Base system layer
-	layers = append(layers, "You are vibeauracle's core assistant. Be accurate, safe, and helpful.")
+	layers = append(layers, "You are vibe auracle's core assistant. Be accurate, safe, and helpful.")
 	layers = append(layers, "If you are unsure, ask a clarifying question instead of guessing.")
 
 	// Safety layer: reflect tool security model

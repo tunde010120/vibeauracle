@@ -1,6 +1,6 @@
-# Contributing to vibeauracle 🌌
+# Contributing to vibe auracle 🌌
 
-First off, thank you for considering contributing to **vibeauracle**! We want this to be the most fluid, "God-tier" developer experience, and that only happens with your input.
+First off, thank you for considering contributing to **vibe auracle**! We want this to be the most fluid, "God-tier" developer experience, and that only happens with your input.
 
 We have a **Zero Friction Policy**. Whether you're fixing a typo, optimizing a cognitive loop, or adding a completely new "Vibe," your contribution is welcome.
 
@@ -16,7 +16,7 @@ We have a **Zero Friction Policy**. Whether you're fixing a typo, optimizing a c
 
 ## 🎭 Creating Your Own "Vibe" (Plugins)
 
-A **Vibe** is a community-contributed module that adds specialized skills to the vibeauracle brain. Adding one is easy:
+A **Vibe** is a community-contributed module that adds specialized skills to the vibe auracle brain. Adding one is easy:
 
 ### 1. Create your Vibe directory
 Navigate to the `vibes/` directory and create a new folder for your project:

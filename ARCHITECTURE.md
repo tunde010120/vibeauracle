@@ -1,4 +1,4 @@
-# 🏗️ vibeauracle: The Alpha & Omega Architecture
+# 🏗️ vibe auracle: The Alpha & Omega Architecture
 
 > **Status:** Active / Pre-Alpha
 > **Maintainer:** @nathfavour
@@ -8,7 +8,7 @@
 
 ## 1. 🌌 The Vision
 
-**vibeauracle** is not just a CLI tool; it is a **Distributed, System-Intimate AI Engineering Ecosystem**.
+**vibe auracle** is not just a CLI tool; it is a **Distributed, System-Intimate AI Engineering Ecosystem**.
 It is designed to be the "God-tier" replacement for the fragmented developer workflow. It unifies the terminal, the IDE, and the AI assistant into a single, keyboard-centric interface that is:
 
 1.  **System Aware:** It knows your hardware constraints (Arch Linux/KDE focus) before acting.
@@ -101,7 +101,7 @@ The `vibe-brain` module does not just "chat." It implements a recursive agentic 
 
 ### 4.3 Data Persistence
 *   **Vector Store:** Local embedded `sqlite-vec` or `chroma` for RAG.
-*   **KV Store:** `BadgerDB` for task logs and conversation history (stored in `~/.local/share/vibeauracle/`).
+*   **KV Store:** `BadgerDB` for task logs and conversation history (stored in `~/.local/share/vibe auracle/`).
 *   **Secrets:** Native OS Keychain via `vibe-vault`. Never store API keys in plain text files.
 
 ---

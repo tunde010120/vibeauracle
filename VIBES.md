@@ -1,8 +1,8 @@
 # 🌀 VIBES: The Extension API
 
-**Vibes** are the soul of vibeauracle's extensibility. They are natural-language-powered, markdown-defined extensions that can modify, extend, or completely redefine any aspect of the system—from UI colors to update schedules to agent behavior.
+**Vibes** are the soul of vibe auracle's extensibility. They are natural-language-powered, markdown-defined extensions that can modify, extend, or completely redefine any aspect of the system—from UI colors to update schedules to agent behavior.
 
-> **Philosophy:** Treat vibeauracle like a microkernel. The core provides primitives; Vibes provide policy.
+> **Philosophy:** Treat vibe auracle like a microkernel. The core provides primitives; Vibes provide policy.
 
 ---
 
@@ -200,7 +200,7 @@ binary:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                     VIBEAURACLE CORE                    │
+│                     VIBE AURACLE CORE                   │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
 │  │  Brain   │ │ Watcher  │ │ Scheduler│ │  Config  │   │
 │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘   │
