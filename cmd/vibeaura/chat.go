@@ -131,7 +131,7 @@ type chatState struct {
 }
 
 var allCommands = []string{
-	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth", "/mcp", "/sys", "/skill", "/models", "/update",
+	"/help", "/status", "/cwd", "/version", "/clear", "/exit", "/show-tree", "/shot", "/auth", "/mcp", "/sys", "/skill", "/models", "/update", "/restart",
 }
 
 var subCommands = map[string][]string{
@@ -1189,6 +1189,10 @@ func (m *model) handleSlashCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		return m, m.updater.CheckUpdateCmd(true) // Manual
+	case "/restart":
+		m.saveState()
+		restartSelf()
+		return m, tea.Quit // Fallback if restartSelf doesn't exec
 	default:
 		m.messages = append(m.messages, errorStyle.Render(" Unknown Command: ")+parts[0])
 	}

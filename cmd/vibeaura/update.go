@@ -16,7 +16,6 @@ import (
 
 	"syscall"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/nathfavour/vibeauracle/sys"
 	"golang.org/x/mod/semver"
 
@@ -392,8 +391,8 @@ func getBranchCommitSHA(branch string) (string, error) {
 	return commit.SHA, nil
 }
 
-// checkUpdateSilent checks for updates and prints a message if one is available.
-// If auto-update is enabled, it attempts to update quietly.
+// checkUpdateSilent checks for updates and performs auto-update if enabled.
+// This function is intentionally silent to avoid corrupting TUI or CLI output.
 func checkUpdateSilent() {
 	cm, err := sys.NewConfigManager()
 	if err != nil {
@@ -404,21 +403,27 @@ func checkUpdateSilent() {
 		return
 	}
 
+	// Skip for dev builds to avoid disrupting local development
+	if Version == "dev" || strings.HasPrefix(Version, "dev-") {
+		return
+	}
+
 	useBeta := cfg.Update.Beta
 	buildFromSource := cfg.Update.BuildFromSource || useBeta
 	autoUpdate := cfg.Update.AutoUpdate
 
+	// If auto-update is disabled, do nothing (no notifications either - TUI handles it)
+	if !autoUpdate {
+		return
+	}
+
 	var latestSHA string
-	var latestTag string
-	var channel string
 	var latest *releaseInfo
 
 	if useBeta && !buildFromSource {
 		latest, err = getLatestRelease("beta")
 		if err == nil && isUpdateAvailable(latest, true) {
 			latestSHA = latest.ActualSHA
-			latestTag = latest.TagName
-			channel = "Beta"
 		}
 	} else if buildFromSource {
 		branch := "release"
@@ -426,89 +431,43 @@ func checkUpdateSilent() {
 			branch = "master"
 		}
 		latestSHA, _ = getBranchCommitSHA(branch)
-		latestTag = branch
-		channel = "Source (" + branch + ")"
 	} else {
 		latest, err = getLatestRelease("")
 		if err == nil && isUpdateAvailable(latest, true) {
 			latestSHA = latest.ActualSHA
-			latestTag = latest.TagName
-			channel = "Stable"
 		}
 	}
 
 	if latestSHA != "" && latestSHA != Commit {
-		// Check if this commit has previously failed to build
+		// Check if this commit has previously failed
 		for _, failed := range cfg.Update.FailedCommits {
 			if failed == latestSHA {
-				return // Don't nag or auto-update for a known failed commit
+				return
 			}
 		}
 
-		if autoUpdate {
-			// Perform quiet auto-update
-			if buildFromSource {
-				branch := "release"
-				if useBeta {
-					branch = "master"
-				}
-				// We run this in a way that doesn't block the main tool too much,
-				// but since it's "integrated", we'll just run it.
-				// Note: installBinary might request sudo, which isn't exactly "quiet".
-				// But for many users (like in /usr/local/bin), they will see the sudo prompt.
-				updated, err := updateFromSource(branch, cm)
-				if err == nil && updated {
-					restartSelf()
-				} else if err != nil {
-					// Mark as failed so we don't try again
-					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
-					cm.Save(cfg)
-				}
-			} else if latest != nil {
-				// Stable/Beta binary update
-				err := performBinaryUpdate(latest)
-				if err == nil {
-					restartSelf()
-				} else {
-					// Binary updates usually don't "fail" in the same way builds do,
-					// but we'll mark it anyway if it does.
-					cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
-					cm.Save(cfg)
-				}
+		// Perform quiet auto-update (no output)
+		if buildFromSource {
+			branch := "release"
+			if useBeta {
+				branch = "master"
 			}
-			return // After auto-update, no need to print notification
+			updated, err := updateFromSource(branch, cm)
+			if err == nil && updated {
+				restartSelf()
+			} else if err != nil {
+				cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
+				cm.Save(cfg)
+			}
+		} else if latest != nil {
+			err := performBinaryUpdate(latest)
+			if err == nil {
+				restartSelf()
+			} else {
+				cfg.Update.FailedCommits = append(cfg.Update.FailedCommits, latestSHA)
+				cm.Save(cfg)
+			}
 		}
-
-		styleNew := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)       // Bright Green
-		styleChannel := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Italic(true) // Bright Blue
-		styleCmd := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)       // Bright Yellow
-		styleDim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))                   // Gray
-
-		displayLatestSHA := latestSHA
-		if len(displayLatestSHA) >= 7 {
-			displayLatestSHA = displayLatestSHA[:7]
-		}
-
-		displayCurCommit := Commit
-		if len(displayCurCommit) >= 7 {
-			displayCurCommit = displayCurCommit[:7]
-		}
-
-		fmt.Println()
-		fmt.Printf("✨ %s %s %s\n",
-			styleNew.Render("A new update is available on the"),
-			styleChannel.Render(channel),
-			styleNew.Render("channel!"),
-		)
-		fmt.Printf("   %s %s (%s) %s %s\n",
-			styleDim.Render("Latest:"), displayLatestSHA, latestTag,
-			styleDim.Render("Current:"), displayCurCommit,
-		)
-		fmt.Printf("   👉 Run %s %s\n",
-			styleCmd.Render("vibeaura update"),
-			styleDim.Render("to stay on the bleeding edge."),
-		)
-		fmt.Println()
 	}
 }
 
