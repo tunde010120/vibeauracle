@@ -36,6 +36,20 @@ docker-compose up -d
 docker-compose run vibeaura
 ```
 
+## 🗑️ Uninstall
+
+If you need to remove **vibeauracle** from your system, you can do so cleanly:
+
+**Remove the binary (keeps configuration/data):**
+```bash
+vibeaura uninstall
+```
+
+**Full wipe (binary + all application data/secrets):**
+```bash
+vibeaura uninstall --clean
+```
+
 ## 🧪 Testing
 Run the unit tests to ensure everything is working correctly:
 ```bash
