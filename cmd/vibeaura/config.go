@@ -35,15 +35,18 @@ Keys:
 		}
 
 		if len(args) == 0 {
-			fmt.Printf("Current Configuration:\n")
-			fmt.Printf("  update.beta:             %v\n", cfg.Update.Beta)
-			fmt.Printf("  update.build_from_source: %v\n", cfg.Update.BuildFromSource)
-			fmt.Printf("  update.auto_update:      %v\n", cfg.Update.AutoUpdate)
-			fmt.Printf("  update.verbose:          %v\n", cfg.Update.Verbose)
-			fmt.Printf("  model.provider:          %s\n", cfg.Model.Provider)
-			fmt.Printf("  model.name:              %s\n", cfg.Model.Name)
-			fmt.Printf("  model.endpoint:          %s\n", cfg.Model.Endpoint)
-			fmt.Printf("  ui.theme:                %s\n", cfg.UI.Theme)
+			fmt.Println()
+			fmt.Println(cliTitle.Render("⚙️  CONFIGURATION"))
+			fmt.Println(cliMuted.Render("─────────────────────────────────────────────"))
+			fmt.Printf("%s %s\n", cliLabel.Render("update.beta:            "), cliValue.Render(fmt.Sprintf("%v", cfg.Update.Beta)))
+			fmt.Printf("%s %s\n", cliLabel.Render("update.build_from_source:"), cliValue.Render(fmt.Sprintf("%v", cfg.Update.BuildFromSource)))
+			fmt.Printf("%s %s\n", cliLabel.Render("update.auto_update:     "), cliHighlight.Render(fmt.Sprintf("%v", cfg.Update.AutoUpdate)))
+			fmt.Printf("%s %s\n", cliLabel.Render("update.verbose:         "), cliValue.Render(fmt.Sprintf("%v", cfg.Update.Verbose)))
+			fmt.Printf("%s %s\n", cliLabel.Render("model.provider:         "), cliSubtitle.Render(cfg.Model.Provider))
+			fmt.Printf("%s %s\n", cliLabel.Render("model.name:             "), cliHighlight.Render(cfg.Model.Name))
+			fmt.Printf("%s %s\n", cliLabel.Render("model.endpoint:         "), cliMuted.Render(cfg.Model.Endpoint))
+			fmt.Printf("%s %s\n", cliLabel.Render("ui.theme:               "), cliValue.Render(cfg.UI.Theme))
+			fmt.Println()
 			return nil
 		}
 
@@ -114,7 +117,7 @@ Keys:
 			return fmt.Errorf("saving config: %w", err)
 		}
 
-		fmt.Printf("✅ Config set %s = %s\n", key, value)
+		fmt.Println(cliBadgeSuccess.Render("SET") + " " + cliLabel.Render(key) + " → " + cliHighlight.Render(value))
 		return nil
 	},
 }
@@ -122,4 +125,3 @@ Keys:
 func init() {
 	rootCmd.AddCommand(configCmd)
 }
-
