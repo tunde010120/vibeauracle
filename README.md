@@ -1,7 +1,9 @@
 <div align="center">
   <img src="./assets/banner.png" width="100%" alt="Vibeauracle Banner" />
+  <br/>
+  <img src="./assets/vibeaura.png" width="128" alt="Vibeauracle Logo" />
 
-  # ✨ vibeauracle
+  # vibeauracle
   **Distributed, System-Intimate AI Engineering Ecosystem**
 
   [![Stable](https://img.shields.io/badge/Stable-ec1de87-10B981?style=for-the-badge&logo=git&logoColor=white)](https://github.com/nathfavour/vibeauracle/tree/release)
