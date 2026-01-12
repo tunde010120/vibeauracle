@@ -1,6 +1,6 @@
 module github.com/nathfavour/vibeauracle/vibes
 
-go 1.25
+go 1.21
 
 require (
 	github.com/robfig/cron/v3 v3.0.1

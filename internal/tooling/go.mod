@@ -1,6 +1,6 @@
 module github.com/nathfavour/vibeauracle/tooling
 
-go 1.24.0
+go 1.21
 
 require github.com/nathfavour/vibeauracle/sys v0.0.0
 
