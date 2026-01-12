@@ -11,15 +11,18 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print detailed version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("vibeaura %s\n", Version)
-		fmt.Printf("  Commit:      %s\n", Commit)
-		fmt.Printf("  Build Date:  %s\n", BuildDate)
-		fmt.Printf("  Platform:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("  Compiler:    %s\n", runtime.Version())
+		fmt.Println()
+		fmt.Println(cliTitle.Render("✨ VIBEAURACLE"))
+		fmt.Println(cliMuted.Render("─────────────────────────────────────────────"))
+		fmt.Printf("%s %s\n", cliLabel.Render("Version:  "), cliHighlight.Render(Version))
+		fmt.Printf("%s %s\n", cliLabel.Render("Commit:   "), cliValue.Render(Commit))
+		fmt.Printf("%s %s\n", cliLabel.Render("Built:    "), cliValue.Render(BuildDate))
+		fmt.Printf("%s %s\n", cliLabel.Render("Platform: "), cliSubtitle.Render(fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)))
+		fmt.Printf("%s %s\n", cliLabel.Render("Compiler: "), cliMuted.Render(runtime.Version()))
+		fmt.Println()
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
 }
-
