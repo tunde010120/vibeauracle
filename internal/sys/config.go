@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -17,13 +18,13 @@ type Config struct {
 	} `mapstructure:"model"`
 
 	Prompt struct {
-		Enabled                    bool    `mapstructure:"enabled"`
-		Mode                       string  `mapstructure:"mode"` // auto|ask|plan|crud
-		ProjectInstructions         string  `mapstructure:"project_instructions"`
-		LearningEnabled             bool    `mapstructure:"learning_enabled"`
-		RecommendationsEnabled      bool    `mapstructure:"recommendations_enabled"`
-		RecommendationsSampleRate   float64 `mapstructure:"recommendations_sample_rate"`
-		RecommendationsMaxPerRun    int     `mapstructure:"recommendations_max_per_run"`
+		Enabled                   bool    `mapstructure:"enabled"`
+		Mode                      string  `mapstructure:"mode"` // auto|ask|plan|crud
+		ProjectInstructions       string  `mapstructure:"project_instructions"`
+		LearningEnabled           bool    `mapstructure:"learning_enabled"`
+		RecommendationsEnabled    bool    `mapstructure:"recommendations_enabled"`
+		RecommendationsSampleRate float64 `mapstructure:"recommendations_sample_rate"`
+		RecommendationsMaxPerRun  int     `mapstructure:"recommendations_max_per_run"`
 	} `mapstructure:"prompt"`
 
 	Update struct {
@@ -40,6 +41,11 @@ type Config struct {
 	} `mapstructure:"ui"`
 
 	DataDir string `mapstructure:"-"`
+
+	Health struct {
+		CrashCount int       `mapstructure:"crash_count"`
+		LastCrash  time.Time `mapstructure:"last_crash"`
+	} `mapstructure:"health"`
 }
 
 // ConfigManager handles loading and saving configuration
@@ -50,18 +56,18 @@ type ConfigManager struct {
 // NewConfigManager initializes the configuration system
 func NewConfigManager() (*ConfigManager, error) {
 	v := viper.New()
-	
+
 	// Determine the home directory
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("getting user home dir: %w", err)
 	}
-	
+
 	dataDir := filepath.Join(home, ".vibeauracle")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating data directory: %w", err)
 	}
-	
+
 	// Default configuration
 	v.SetDefault("model.provider", "ollama")
 	v.SetDefault("model.endpoint", "http://localhost:11434")
@@ -77,7 +83,7 @@ func NewConfigManager() (*ConfigManager, error) {
 	v.SetDefault("prompt.recommendations_enabled", false)
 	v.SetDefault("prompt.recommendations_sample_rate", 0.02)
 	v.SetDefault("prompt.recommendations_max_per_run", 1)
-	
+
 	// Platform-specific screenshot directory
 	var defaultShotDir string
 	if _, err := os.Stat("/data/data/com.termux/files/usr/bin/bash"); err == nil {
@@ -92,11 +98,11 @@ func NewConfigManager() (*ConfigManager, error) {
 	v.SetDefault("update.auto_update", true)
 	v.SetDefault("update.verbose", false)
 	v.SetDefault("update.failed_commits", []string{})
-	
+
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
 	v.AddConfigPath(dataDir)
-	
+
 	// Create config file if it doesn't exist
 	configPath := filepath.Join(dataDir, "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -104,11 +110,11 @@ func NewConfigManager() (*ConfigManager, error) {
 			return nil, fmt.Errorf("writing initial config: %w", err)
 		}
 	}
-	
+
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
-	
+
 	return &ConfigManager{v: v}, nil
 }
 
@@ -118,10 +124,10 @@ func (cm *ConfigManager) Load() (*Config, error) {
 	if err := cm.v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
-	
+
 	home, _ := os.UserHomeDir()
 	cfg.DataDir = filepath.Join(home, ".vibeauracle")
-	
+
 	return &cfg, nil
 }
 
@@ -144,7 +150,9 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 	cm.v.Set("update.failed_commits", cfg.Update.FailedCommits)
 	cm.v.Set("ui.theme", cfg.UI.Theme)
 	cm.v.Set("ui.screenshot_dir", cfg.UI.ScreenshotDir)
-	
+	cm.v.Set("health.crash_count", cfg.Health.CrashCount)
+	cm.v.Set("health.last_crash", cfg.Health.LastCrash)
+
 	return cm.v.WriteConfig()
 }
 
@@ -153,4 +161,3 @@ func (cm *ConfigManager) GetDataPath(subpath string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".vibeauracle", subpath)
 }
-

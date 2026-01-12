@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/nathfavour/vibeauracle/internal/doctor"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nathfavour/vibeauracle/brain"
 	"github.com/nathfavour/vibeauracle/tooling"
@@ -74,6 +76,7 @@ the IDE, and the AI assistant into a single system-aware experience.`,
 
 		// Inject Status Reporting into Tooling
 		tooling.StatusReporter = func(icon, step, msg string) {
+			doctor.Send("tooling", doctor.SignalInit, fmt.Sprintf("%s %s", step, msg), nil)
 			select {
 			case StatusStream <- StatusEvent{Icon: icon, Step: step, Message: msg}:
 			default:
@@ -84,6 +87,7 @@ the IDE, and the AI assistant into a single system-aware experience.`,
 		// Ensure we are in an interactive terminal
 		p := tea.NewProgram(initialModel(b), tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
+			doctor.Send("tui", doctor.SignalError, err.Error(), nil)
 			fmt.Printf("Alas, there's been an error: %v", err)
 			os.Exit(1)
 		}
