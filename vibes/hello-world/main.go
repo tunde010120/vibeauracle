@@ -23,7 +23,7 @@ func (p *HelloWorldVibe) Execute(ctx context.Context, args map[string]interface{
 	if !ok {
 		name = "World"
 	}
-	return fmt.Sprintf("Hello, %s! Welcome to the vibeauracle ecosystem.", name), nil
+	return fmt.Sprintf("Hello, %s! Welcome to the vibe auracle ecosystem.", name), nil
 }
 
 // Ensure the vibe implements the interface
@@ -32,4 +32,3 @@ var _ vibe.Vibe = (*HelloWorldVibe)(nil)
 func main() {
 	fmt.Println("This is a vibe and not meant to be run directly.")
 }
-

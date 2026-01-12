@@ -11,7 +11,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print detailed version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		printTitle("✨", "VIBEAURACLE")
+		printTitle("✨", "VIBE AURACLE")
 		printKeyValueHighlight("Version  ", Version)
 		printKeyValue("Commit   ", Commit)
 		printKeyValue("Built    ", BuildDate)

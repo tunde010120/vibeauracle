@@ -59,8 +59,8 @@ func init() {
 var rootCmd = &cobra.Command{
 	Use:     "vibeaura",
 	Version: Version,
-	Short:   "vibeauracle - Distributed, System-Intimate AI Engineering Ecosystem",
-	Long: `vibeauracle is a keyboard-centric interface that unifies the terminal, 
+	Short:   "vibe auracle - Distributed, System-Intimate AI Engineering Ecosystem",
+	Long: `vibe auracle is a keyboard-centric interface that unifies the terminal, 
 the IDE, and the AI assistant into a single system-aware experience.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Ensure the tool is installed in a standard system directory

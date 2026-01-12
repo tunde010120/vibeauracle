@@ -1,4 +1,4 @@
-# vibeauracle Windows Installer
+# vibe auracle Windows Installer
 # Usage: iex (irm https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.ps1)
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +47,6 @@ if ($env:Path -notlike "*$InstallDir*") {
     $env:Path += ";$InstallDir"
 }
 
-Write-Host "Successfully installed vibeauracle to $ExePath" -ForegroundColor Green
+Write-Host "Successfully installed vibe auracle to $ExePath" -ForegroundColor Green
 Write-Host "You may need to restart your terminal for changes to take effect." -ForegroundColor Yellow
 & "$ExePath" --help

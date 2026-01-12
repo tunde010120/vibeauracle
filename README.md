@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="./assets/vibeaura.png" width="128" alt="Vibeauracle Logo" />
+  <img src="./assets/vibeaura.png" width="128" alt="Vibe Auracle Logo" />
 
-  # vibeauracle
+  # vibe auracle
   **Distributed, System-Intimate AI Engineering Ecosystem**
 
   [![Stable](https://img.shields.io/badge/Stable-ec1de87-10B981?style=for-the-badge&logo=git&logoColor=white)](https://github.com/nathfavour/vibeauracle/tree/release)
@@ -13,7 +13,7 @@
 ---
 
 ## 🌌 The Vision
-**vibeauracle** unifies the terminal, the IDE, and the AI assistant into a single, keyboard-centric interface. It's built for engineers who value **system-intimacy**—where the AI isn't just a chatbot, but a co-pilot with deep access to your hardware, configuration, and environment.
+**vibe auracle** unifies the terminal, the IDE, and the AI assistant into a single, keyboard-centric interface. It's built for engineers who value **system-intimacy**—where the AI isn't just a chatbot, but a co-pilot with deep access to your hardware, configuration, and environment.
 
 ## ⚡ Core Features
 - **Keyboard-Centric**: Designed for speed and fluid terminal workflows.

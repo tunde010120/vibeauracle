@@ -106,11 +106,10 @@ func (h *Handler) Grant(req Request, decision Decision, duration Duration) {
 		h.sessionGrants[key] = decision
 	case DurationPermanent:
 		h.permanentGrants[key] = decision
-		// In a real app, this would be saved to the ~/.vibeauracle/config.yaml
+		// In a real app, this would be saved to the ~/.vibe auracle/config.yaml
 	}
 }
 
 func (h *Handler) key(action Action, resource string) string {
 	return fmt.Sprintf("%s:%s", action, resource)
 }
-
