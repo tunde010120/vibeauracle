@@ -449,6 +449,25 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.Contains(val, "/models /use") {
 			m.updateSuggestions(val)
 		}
+
+	case UpdateAvailableMsg:
+		// Start download immediately
+		m.updateVersion = msg.Latest.TagName
+		return m, m.updater.DownloadUpdateCmd(msg.Latest)
+
+	case UpdateReadyMsg:
+		m.updateReady = true
+	}
+
+	// 5. Check for Hot-Swap Opportunity
+	if m.updateReady && !m.isThinking {
+		// Only swap if user is not actively typing a complex command?
+		// Or just do it. The request says "rapidly within this time frame".
+		// We'll treat !isThinking as the main gap.
+		// Also maybe check if input is empty to be polite.
+		if m.textarea.Value() == "" {
+			PerformHotSwap(m.messages, m.textarea.Value())
+		}
 	}
 
 	return m, tea.Batch(tiCmd, vpCmd, eaCmd, pvCmd)
