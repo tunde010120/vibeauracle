@@ -56,12 +56,12 @@ func (l *LocalFS) ReadFile(path string) ([]byte, error) {
 // WriteFile creates or overwrites a file
 func (l *LocalFS) WriteFile(path string, content []byte) error {
 	fullPath := l.resolvePath(path)
-	
+
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
-	
+
 	return os.WriteFile(fullPath, content, 0644)
 }
 
@@ -99,7 +99,7 @@ func (l *LocalFS) Edit(path string, oldStr, newStr string) error {
 	}
 
 	newContent := bytes.ReplaceAll(content, []byte(oldStr), []byte(newStr))
-	
+
 	// Atomic-ish write: only write if something changed
 	if bytes.Equal(content, newContent) {
 		return nil
@@ -125,11 +125,18 @@ func (l *LocalFS) Batch(ops []BatchOp) error {
 	return nil
 }
 
-// resolvePath ensures paths are handled relative to the base directory
+// resolvePath ensures paths are handled relative to the base directory and sanitized.
 func (l *LocalFS) resolvePath(path string) string {
-	if filepath.IsAbs(path) {
-		return path
+	if path == "" {
+		return l.baseDir
 	}
-	return filepath.Join(l.baseDir, path)
+	if filepath.IsAbs(path) {
+		return path // User knows what they are doing with absolute paths
+	}
+	// Force join with CWD/baseDir
+	abs, err := filepath.Abs(filepath.Join(l.baseDir, path))
+	if err != nil {
+		return filepath.Join(l.baseDir, path) // Fallback
+	}
+	return abs
 }
-

@@ -3,6 +3,7 @@ package tooling
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,24 +20,25 @@ func NewTraversalTool(f sys.FS) *TraversalTool {
 	return &TraversalTool{fs: f}
 }
 
-func (t *TraversalTool) Name() string {
-	return "traverse_source"
+func (t *TraversalTool) Metadata() ToolMetadata {
+	return ToolMetadata{
+		Name:        "traverse_source",
+		Description: "Intelligently traverses source code directory.",
+		Source:      "system",
+		Category:    CategoryAnalysis,
+		Roles:       []AgentRole{RoleArchitect, RoleCoder},
+		Complexity:  6,
+		Permissions: []Permission{PermRead},
+		Parameters: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"path": {"type": "string", "description": "Subdirectory to start traversal from"}
+			}
+		}`),
+	}
 }
 
-func (t *TraversalTool) Description() string {
-	return "Intelligently traverses source code directory while skipping ignored files and large assets."
-}
-
-func (t *TraversalTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{
-		"type": "object",
-		"properties": {
-			"path": {"type": "string", "description": "Subdirectory to start traversal from"}
-		}
-	}`)
-}
-
-func (t *TraversalTool) Execute(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (t *TraversalTool) Execute(ctx context.Context, args json.RawMessage) (*ToolResult, error) {
 	var input struct {
 		Path string `json:"path"`
 	}
@@ -67,7 +69,7 @@ func (t *TraversalTool) Execute(ctx context.Context, args json.RawMessage) (inte
 		// Add relative path to results
 		rel, _ := filepath.Rel(root, path)
 		results = append(results, rel)
-		
+
 		// Memory safety cap: don't return more than 500 files at once
 		if len(results) > 500 {
 			return fs.ErrInvalid // Or a specific signal to stop
@@ -77,9 +79,12 @@ func (t *TraversalTool) Execute(ctx context.Context, args json.RawMessage) (inte
 	})
 
 	if err != nil && err != fs.ErrInvalid {
-		return nil, err
+		return &ToolResult{Status: "error", Error: err}, err
 	}
 
-	return results, nil
+	return &ToolResult{
+		Status:  "success",
+		Content: fmt.Sprintf("Found %d source files", len(results)),
+		Data:    results,
+	}, nil
 }
-

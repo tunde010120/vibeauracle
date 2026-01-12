@@ -9,10 +9,38 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+func init() {
+	Register("ollama", func(config map[string]string) (Provider, error) {
+		return NewOllamaProvider(config["endpoint"], config["model"])
+	})
+}
+
 // OllamaProvider implements the Provider interface for Ollama
 type OllamaProvider struct {
 	client *api.Client
 	model  string
+}
+
+func (p *OllamaProvider) Name() string { return "ollama" }
+
+// PullModel attempts to pull a model from the Ollama registry
+func (p *OllamaProvider) PullModel(ctx context.Context, name string, progress func(any)) error {
+	req := &api.PullRequest{
+		Model: name,
+	}
+
+	fn := func(resp api.ProgressResponse) error {
+		if progress != nil {
+			progress(resp)
+		}
+		return nil
+	}
+
+	err := p.client.Pull(ctx, req, fn)
+	if err != nil {
+		return fmt.Errorf("ollama pull: %w", err)
+	}
+	return nil
 }
 
 // NewOllamaProvider creates a new Ollama provider
@@ -52,5 +80,19 @@ func (p *OllamaProvider) Generate(ctx context.Context, prompt string) (string, e
 	}
 
 	return response, nil
+}
+
+// ListModels returns a list of available models from Ollama
+func (p *OllamaProvider) ListModels(ctx context.Context) ([]string, error) {
+	resp, err := p.client.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ollama list models: %w", err)
+	}
+
+	var models []string
+	for _, m := range resp.Models {
+		models = append(models, m.Name)
+	}
+	return models, nil
 }
 

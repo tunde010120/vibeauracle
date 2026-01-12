@@ -36,6 +36,9 @@ func TestConfigManager(t *testing.T) {
 	if cfg.Model.Provider != "ollama" {
 		t.Errorf("got provider %q, want 'ollama'", cfg.Model.Provider)
 	}
+	if cfg.Prompt.Mode != "auto" {
+		t.Errorf("got prompt mode %q, want 'auto'", cfg.Prompt.Mode)
+	}
 
 	// Verify file existence
 	dataDir := filepath.Join(tmpHome, ".vibeauracle")
@@ -46,6 +49,7 @@ func TestConfigManager(t *testing.T) {
 
 	// Test Save/Update
 	cfg.Model.Name = "custom-model"
+	cfg.Prompt.Mode = "ask"
 	if err := cm.Save(cfg); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
@@ -55,6 +59,9 @@ func TestConfigManager(t *testing.T) {
 	cfg2, _ := cm2.Load()
 	if cfg2.Model.Name != "custom-model" {
 		t.Errorf("got model name %q, want 'custom-model'", cfg2.Model.Name)
+	}
+	if cfg2.Prompt.Mode != "ask" {
+		t.Errorf("got prompt mode %q, want 'ask'", cfg2.Prompt.Mode)
 	}
 }
 

@@ -1,32 +1,42 @@
 package mcp
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+
+	"github.com/nathfavour/vibeauracle/tooling"
 )
 
-// Tool represents an MCP tool that can be executed
-type Tool struct {
-	Name        string
-	Description string
-}
-
-// Bridge manages connections to various MCP servers
+// Bridge manages connections to various MCP-compliant tools and registries.
 type Bridge struct {
-	Tools []Tool
+	registry *tooling.Registry
 }
 
-func NewBridge() *Bridge {
+func NewBridge(r *tooling.Registry) *Bridge {
 	return &Bridge{
-		Tools: []Tool{
-			{Name: "github_query", Description: "Query GitHub API"},
-			{Name: "postgres_exec", Description: "Execute SQL on Postgres"},
-		},
+		registry: r,
 	}
 }
 
-// Execute runs a tool via the MCP protocol
-func (b *Bridge) Execute(toolName string, args map[string]interface{}) (string, error) {
-	fmt.Printf("Executing MCP tool: %s with args: %v\n", toolName, args)
-	return fmt.Sprintf("Result from %s", toolName), nil
+// ListTools returns all tools available through the bridge in an MCP-compliant format.
+func (b *Bridge) ListTools() []tooling.MCPTool {
+	tools := b.registry.List()
+	mcpTools := make([]tooling.MCPTool, len(tools))
+	for i, t := range tools {
+		mcpTools[i] = tooling.ToMCP(t)
+	}
+	return mcpTools
 }
+
+// Execute runs a tool from the registry.
+func (b *Bridge) Execute(ctx context.Context, toolName string, args json.RawMessage) (interface{}, error) {
+	t, ok := b.registry.Get(toolName)
+	if !ok {
+		return nil, fmt.Errorf("tool not found: %s", toolName)
+	}
+
+	return t.Execute(ctx, args)
+}
+
 

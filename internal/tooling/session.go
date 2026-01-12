@@ -4,13 +4,23 @@ import (
 	"time"
 )
 
+// ToolCall represents a specific tool invocation within a thread.
+type ToolCall struct {
+	ToolName  string      `json:"tool_name"`
+	Args      interface{} `json:"args"`
+	Result    interface{} `json:"result"`
+	Error     string      `json:"error,omitempty"`
+	Timestamp time.Time   `json:"timestamp"`
+}
+
 // Thread represents a single interaction or "prompt" in a session.
 type Thread struct {
-	ID        string    `json:"id"`
-	Prompt    string    `json:"prompt"`
-	Response  string    `json:"response"`
+	ID        string                 `json:"id"`
+	Prompt    string                 `json:"prompt"`
+	Response  string                 `json:"response"`
+	ToolCalls []ToolCall             `json:"tool_calls"`
 	Metadata  map[string]interface{} `json:"metadata"`
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time              `json:"timestamp"`
 }
 
 // Session represents a "process" containing multiple threads.
@@ -43,4 +53,3 @@ func (s *Session) Export() map[string]interface{} {
 		"updated_at": s.UpdatedAt,
 	}
 }
-

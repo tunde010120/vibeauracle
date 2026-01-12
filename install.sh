@@ -103,47 +103,54 @@ chmod +x vibeaura
 # Install binary
 if [ "$OS" = "android" ]; then
     INSTALL_DIR="$HOME/bin"
-    mkdir -p "$INSTALL_DIR"
-    mv vibeaura "$INSTALL_DIR/vibeaura"
-    chmod +x "$INSTALL_DIR/vibeaura"
-    echo "Successfully installed vibeauracle to $INSTALL_DIR/vibeaura"
-
-    # Auto-add to PATH
-    SHELL_RC=""
-    if [ -n "$ZSH_VERSION" ]; then
-        SHELL_RC="$HOME/.zshrc"
-    elif [ -n "$BASH_VERSION" ]; then
-        SHELL_RC="$HOME/.bashrc"
-    elif [ -f "$HOME/.zshrc" ]; then
-        SHELL_RC="$HOME/.zshrc"
-    elif [ -f "$HOME/.bashrc" ]; then
-        SHELL_RC="$HOME/.bashrc"
-    fi
-
-    if [ -n "$SHELL_RC" ]; then
-        if ! grep -q "$INSTALL_DIR" "$SHELL_RC" 2>/dev/null; then
-            echo "" >> "$SHELL_RC"
-            echo "# vibeauracle path" >> "$SHELL_RC"
-            echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$SHELL_RC"
-            echo "Added $INSTALL_DIR to $SHELL_RC"
-        fi
-        echo "Please restart your shell or run: source $SHELL_RC"
-    fi
-    
-    export PATH="$PATH:$INSTALL_DIR"
-    # Use expanded home directory for true absolute path in output/check
-    FINAL_BINARY="${HOME}/bin/vibeaura"
-    "$FINAL_BINARY" version || true
 else
-    INSTALL_DIR="/usr/local/bin"
-    if [ -w "$INSTALL_DIR" ]; then
-        mv vibeaura "$INSTALL_DIR/vibeaura"
+    # Prefer Go bin path if it exists, otherwise ~/.local/bin, then fallback to /usr/local/bin
+    if [ -n "$GOPATH" ]; then
+        INSTALL_DIR="$GOPATH/bin"
+    elif [ -d "$HOME/go/bin" ]; then
+        INSTALL_DIR="$HOME/go/bin"
+    elif [ -d "$HOME/.local/bin" ]; then
+        INSTALL_DIR="$HOME/.local/bin"
     else
-        echo "Requesting sudo to install to $INSTALL_DIR..."
-        sudo mv vibeaura "$INSTALL_DIR/vibeaura"
+        INSTALL_DIR="/usr/local/bin"
     fi
-    echo "Successfully installed vibeauracle to $INSTALL_DIR/vibeaura"
-    # Full absolute path for version check
-    FINAL_BINARY="/usr/local/bin/vibeaura"
-    "$FINAL_BINARY" version || true
 fi
+
+if [ ! -d "$INSTALL_DIR" ]; then
+    mkdir -p "$INSTALL_DIR" 2>/dev/null || true
+fi
+
+if [ -w "$INSTALL_DIR" ] || [ ! -e "$INSTALL_DIR" ]; then
+    mv vibeaura "$INSTALL_DIR/vibeaura" 2>/dev/null || sudo mv vibeaura "$INSTALL_DIR/vibeaura"
+else
+    echo "Requesting sudo to install to $INSTALL_DIR..."
+    sudo mv vibeaura "$INSTALL_DIR/vibeaura"
+fi
+
+chmod +x "$INSTALL_DIR/vibeaura"
+echo "Successfully installed vibeauracle to $INSTALL_DIR/vibeaura"
+
+# Auto-add to PATH
+SHELL_RC=""
+if [ -n "$ZSH_VERSION" ]; then
+    SHELL_RC="$HOME/.zshrc"
+elif [ -n "$BASH_VERSION" ]; then
+    SHELL_RC="$HOME/.bashrc"
+else
+    # Fallback to checking existence
+    [ -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.zshrc"
+    [ -f "$HOME/.bashrc" ] && [ -z "$SHELL_RC" ] && SHELL_RC="$HOME/.bashrc"
+fi
+
+if [ -n "$SHELL_RC" ]; then
+    if ! grep -q "$INSTALL_DIR" "$SHELL_RC" 2>/dev/null; then
+        echo "" >> "$SHELL_RC"
+        echo "# vibeauracle path" >> "$SHELL_RC"
+        echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$SHELL_RC"
+        echo "Added $INSTALL_DIR to $SHELL_RC"
+    fi
+    echo "Please restart your shell or run: source $SHELL_RC"
+fi
+
+export PATH="$PATH:$INSTALL_DIR"
+"$INSTALL_DIR/vibeaura" version || true
