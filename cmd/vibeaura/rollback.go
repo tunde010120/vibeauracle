@@ -96,8 +96,8 @@ func rollbackBinary(target string) error {
 		fmt.Println("ℹ️  Automatic updates disabled. Run 'vibeaura update' manually to re-enable.")
 	}
 
-	fmt.Println("DONE")
-	
+	printSuccess("Rollback complete")
+
 	// For rollbacks, we don't hand off the 'rollback' command (to avoid recursion).
 	// Instead, we implicitly hand off a 'version' command to the newly installed binary.
 	restartWithArgs([]string{"vibeaura", "version"})
@@ -124,7 +124,7 @@ func rollbackFromSource(target string, cm *sys.ConfigManager) error {
 	}
 
 	fmt.Printf("⏪ Rolling back source to %s...\n", target)
-	
+
 	// Checkout target
 	checkoutCmd := exec.Command("git", "-C", sourceRoot, "checkout", target)
 	if out, err := checkoutCmd.CombinedOutput(); err != nil {
@@ -148,7 +148,7 @@ func rollbackFromSource(target string, cm *sys.ConfigManager) error {
 	fmt.Println("ℹ️  Automatic updates disabled. Run 'vibeaura update' manually to re-enable.")
 
 	fmt.Println("DONE")
-	
+
 	// For rollbacks, we don't hand off the 'rollback' command (to avoid recursion).
 	// Instead, we implicitly hand off a 'version' command to the newly installed binary.
 	restartWithArgs([]string{"vibeaura", "version"})
