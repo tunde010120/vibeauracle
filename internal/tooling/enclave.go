@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // InterventionError is returned when a tool needs user selection/approval.
@@ -26,6 +28,7 @@ func (e *InterventionError) Error() string {
 // It supports approvals scoped to: once (caller-handled), session, or forever (persisted).
 type Enclave struct {
 	store *ApprovalStore
+	audit *AuditLogger
 
 	mu           sync.Mutex
 	sessionAllow map[string]bool
@@ -34,12 +37,18 @@ type Enclave struct {
 
 func NewEnclave(appDataDir string) (*Enclave, error) {
 	storePath := filepath.Join(appDataDir, "enclave", "approvals.json")
+	auditPath := filepath.Join(appDataDir, "enclave", "audit.log")
+
+	// Ensure dir exists
+	os.MkdirAll(filepath.Dir(storePath), 0755)
+
 	s, err := NewApprovalStore(storePath)
 	if err != nil {
 		return nil, err
 	}
 	return &Enclave{
 		store:        s,
+		audit:        NewAuditLogger(auditPath),
 		sessionAllow: map[string]bool{},
 		sessionDeny:  map[string]bool{},
 	}, nil
@@ -84,17 +93,22 @@ func (e *Enclave) Interceptor(tool Tool, args json.RawMessage) (bool, error) {
 
 	// Hard-block rules
 	if risk == "blocked" {
+		e.audit.Log(req.ToolName, args, risk, "Blocked", resolveScope(args))
 		return false, fmt.Errorf("security: blocked action: %s", req.Summary)
 	}
+
+	scope := resolveScope(args)
 
 	// Session checks
 	e.mu.Lock()
 	if e.sessionDeny[key] {
 		e.mu.Unlock()
+		e.audit.Log(req.ToolName, args, risk, "Denied (Session)", scope)
 		return false, fmt.Errorf("security: denied for session: %s", req.Summary)
 	}
 	if e.sessionAllow[key] {
 		e.mu.Unlock()
+		e.audit.Log(req.ToolName, args, risk, "Approved (Session)", scope)
 		return true, nil
 	}
 	e.mu.Unlock()
@@ -103,8 +117,10 @@ func (e *Enclave) Interceptor(tool Tool, args json.RawMessage) (bool, error) {
 	if rec, ok := e.store.Get(key); ok {
 		switch rec.Decision {
 		case decisionAllow:
+			e.audit.Log(req.ToolName, args, risk, "Approved (Persisted)", scope)
 			return true, nil
 		case decisionDeny:
+			e.audit.Log(req.ToolName, args, risk, "Denied (Persisted)", scope)
 			return false, fmt.Errorf("security: denied (persisted): %s", req.Summary)
 		}
 	}
@@ -113,14 +129,18 @@ func (e *Enclave) Interceptor(tool Tool, args json.RawMessage) (bool, error) {
 	resumeFunc := func(choice string) (*ToolResult, error) {
 		switch choice {
 		case "Approve Once":
+			e.audit.Log(req.ToolName, args, risk, "Approved (Once)", scope)
 			return tool.Execute(context.TODO(), args) // Execute directly
 		case "Approve Session":
 			e.ApproveSession(key)
+			e.audit.Log(req.ToolName, args, risk, "Approved (Session)", scope)
 			return tool.Execute(context.TODO(), args)
 		case "Approve Forever":
 			e.ApproveForever(key)
+			e.audit.Log(req.ToolName, args, risk, "Approved (Forever)", scope)
 			return tool.Execute(context.TODO(), args)
 		default:
+			e.audit.Log(req.ToolName, args, risk, "Denied (User)", scope)
 			return nil, fmt.Errorf("security: user denied %s", req.Summary)
 		}
 	}
@@ -271,3 +291,67 @@ func contains(xs []string, target string) bool {
 
 // Ensure Enclave can be used where context is needed (future).
 var _ = context.Background
+
+// --- Audit Logging ---
+
+type AuditEntry struct {
+	Timestamp string `json:"timestamp"`
+	Tool      string `json:"tool"`
+	Args      string `json:"args"`
+	Risk      string `json:"risk"`
+	Decision  string `json:"decision"` // Approved, Denied
+	Scope     string `json:"scope"`    // Local, System
+}
+
+// AuditLogger maintains a secure ledger of all agent actions
+type AuditLogger struct {
+	path string
+	mu   sync.Mutex
+}
+
+func NewAuditLogger(path string) *AuditLogger {
+	return &AuditLogger{path: path}
+}
+
+func (l *AuditLogger) Log(tool string, args json.RawMessage, risk, decision, scope string) {
+	entry := AuditEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Tool:      tool,
+		Args:      stableJSON(args),
+		Risk:      risk,
+		Decision:  decision,
+		Scope:     scope,
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) // 0600 = Secure
+	if err == nil {
+		bytes, _ := json.Marshal(entry)
+		f.WriteString(string(bytes) + "\n")
+		f.Close()
+	}
+}
+
+// --- Scoped Security ---
+
+// resolveScope determines if an operation is Local (safe-ish) or System (dangerous)
+func resolveScope(args json.RawMessage) string {
+	s := string(args)
+	// Heuristic: absolute paths outside CWD are system.
+	// This is imperfect but a good baseline.
+	if strings.Contains(s, "\"/etc/") || strings.Contains(s, "\"/usr/") || strings.Contains(s, "\"/var/") {
+		return "System"
+	}
+	cwd, _ := os.Getwd()
+	if strings.Contains(s, cwd) {
+		return "Local"
+	}
+	// Default to system if ambiguous for safety, or Local if it looks like a relative path
+	// For now, let's assume Local unless it looks like a root path
+	if strings.Contains(s, "\"/") && !strings.Contains(s, "\"/home/") {
+		return "System"
+	}
+	return "Local"
+}

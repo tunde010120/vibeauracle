@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/nathfavour/vibeauracle/auth"
@@ -51,6 +53,21 @@ func New() *Brain {
 	// Initialize vault with data directory fallback
 	v, _ := vault.New("vibeauracle", cfg.DataDir)
 
+	// Initialize Security
+	guard := tooling.NewSecurityGuard()
+
+	// Create Enclave (Hardware-Intimate Agentic Security)
+	enclaveDir := cfg.DataDir
+	if enclaveDir == "" {
+		home, _ := os.UserHomeDir()
+		enclaveDir = filepath.Join(home, ".vibeauracle")
+	}
+
+	enclave, err := tooling.NewEnclave(enclaveDir)
+	if err == nil {
+		guard.SetInterceptor(enclave.Interceptor)
+	}
+
 	b := &Brain{
 		monitor:  sys.NewMonitor(),
 		config:   cfg,
@@ -58,7 +75,7 @@ func New() *Brain {
 		auth:     auth.NewHandler(),
 		vault:    v,
 		memory:   vcontext.NewMemory(),
-		security: tooling.NewSecurityGuard(),
+		security: guard,
 		sessions: make(map[string]*tooling.Session),
 	}
 
