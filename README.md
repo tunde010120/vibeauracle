@@ -1,75 +1,68 @@
-# 🏗️ vibeauracle: The Alpha & Omega
+<div align="center">
+  <img src="./assets/banner.png" width="100%" alt="Vibeauracle Banner" />
 
-**vibeauracle** is a **Distributed, System-Intimate AI Engineering Ecosystem**. It unifies the terminal, the IDE, and the AI assistant into a single, keyboard-centric interface.
+  # ✨ vibeauracle
+  **Distributed, System-Intimate AI Engineering Ecosystem**
 
-## 🚀 Installation
+  [![Stable](https://img.shields.io/badge/Stable-ec1de87-10B981?style=for-the-badge&logo=git&logoColor=white)](https://github.com/nathfavour/vibeauracle/tree/release)
+  [![Beta](https://img.shields.io/badge/Beta-7ebb650-7C3AED?style=for-the-badge&logo=git&logoColor=white)](https://github.com/nathfavour/vibeauracle/tree/master)
+  [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
+  [![License](https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge)](LICENSE)
+</div>
 
-You can install **vibeauracle** quickly using the command for your platform. The installer will automatically detect your architecture and fetch the latest stable release.
+---
 
-### 🐧 Linux / 🍎 macOS / 🤖 Android (Bash)
+## 🌌 The Vision
+**vibeauracle** unifies the terminal, the IDE, and the AI assistant into a single, keyboard-centric interface. It's built for engineers who value **system-intimacy**—where the AI isn't just a chatbot, but a co-pilot with deep access to your hardware, configuration, and environment.
+
+## ⚡ Core Features
+- **Keyboard-Centric**: Designed for speed and fluid terminal workflows.
+- **Deep Integration**: Real-time awareness of system stats, files, and Git state.
+- **Universal Updates**: Seamless, background updates tracking Git SHAs directly.
+- **Multi-Provider**: Works with Ollama, OpenAI, and GitHub Models out of the box.
+- **Cleanup First**: First-class `uninstall` support to preserve privacy and system hygiene.
+
+---
+
+## 🚀 Quick Install
+
+### 🐧 Linux / 🍎 macOS / 🤖 Android
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.sh | sh
 ```
-*Or using wget:*
-```bash
-wget -qO- https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.sh | sh
-```
 
-### 🪟 Windows (Powershell)
-Run the following in PowerShell as Administrator:
+### 🪟 Windows
 ```powershell
 iex (irm https://raw.githubusercontent.com/nathfavour/vibeauracle/release/install.ps1)
 ```
 
-### 📦 Manual Installation (Pre-built)
-If you prefer, you can download pre-built binaries directly from our [Releases page](https://github.com/nathfavour/vibeauracle/releases).
+> **Pro Tip:** One install is all you need. Keep the vibes fresh with `vibeaura update`.
 
-Simply choose the binary that matches your OS and architecture, make it executable (`chmod +x`), and move it to your PATH. **You only need to do this once**—future updates are handled automatically with:
-```bash
-vibeaura update
-```
+---
 
-### 🐳 Docker
-You can also run **vibeauracle** in a containerized environment:
-```bash
-docker-compose up -d
-docker-compose run vibeaura
-```
+## 🛠️ Usage
+| Command | Description |
+|---------|-------------|
+| `vibeaura` | Launch the interactive session |
+| `vibeaura update` | Pull the latest SHA from your current branch |
+| `vibeaura sys stats` | View real-time system power snapshot |
+| `vibeaura models` | Discover and switch AI providers |
 
-## 🗑️ Uninstall
-
-If you need to remove **vibeauracle** from your system, you can do so cleanly:
-
-**Remove the binary (keeps configuration/data):**
+### 🗑️ Uninstall & Clean
+We respect your space. To remove the tool but keep your data:
 ```bash
 vibeaura uninstall
 ```
-
-**Full wipe (binary + all application data/secrets):**
+To wipe **everything** (binary + secrets + config):
 ```bash
 vibeaura uninstall --clean
 ```
 
-## 🧪 Testing
-Run the unit tests to ensure everything is working correctly:
-```bash
-go test ./internal/brain/... ./internal/model/... ./internal/sys/...
-```
-
-## 🧩 Supported Platforms
-* **Linux**: amd64, arm64 (Arch, Debian, etc.)
-* **macOS**: Apple Silicon (M1/M2/M3), Intel
-* **Windows**: amd64, arm64 (via PowerShell/WSL)
-* **Android**: arm64 (via Termux)
-
-## 🛠️ Getting Started
-Once installed, start a session:
-```bash
-vibeaura
-```
-
-## 🏗️ Architecture
-For deep technical details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+---
 
 ## 🤝 Contributing
-We love community "Vibes"! Check out [CONTRIBUTING.md](./CONTRIBUTING.md) to see how you can add your own agent skills and plugins.
+We love community "Vibes"! Check out [CONTRIBUTING.md](./CONTRIBUTING.md) to add your own agent skills.
+
+<div align="center">
+  <sub>Built with 💜 for the future of engineering.</sub>
+</div>
