@@ -31,6 +31,11 @@ func (p *SystemProvider) Provide(ctx context.Context) ([]Tool, error) {
 		&GrepTool{},
 		NewSystemInfoTool(p.monitor),
 		&FetchURLTool{},
+		NewToolDiscoveryTool(NewRegistry()), // Temporary: we need a reference to the main registry.
+		// Actually, SystemProvider shouldn't instantiate the registry.
+		// The Discovery Tool needs access to the registry.
+		// We'll solve this by setting the registry on the tool AFTER registration or passing it in.
+		// For now, let's delay adding it here and add it in Setup.
 	}
 
 	var secured []Tool
@@ -64,16 +69,16 @@ func (p *VibeProvider) Provide(ctx context.Context) ([]Tool, error) {
 // Global Registry Setup
 func Setup(f sys.FS, m *sys.Monitor, guard *SecurityGuard) *Registry {
 	r := NewRegistry()
+
+	// Register Providers
 	r.RegisterProvider(NewSystemProvider(f, m, guard))
 	r.RegisterProvider(NewVibeProvider())
 
-	// Example MCP Provider (can be loaded from config in the future)
-	// r.RegisterProvider(NewMCPProvider(MCPConfig{
-	// 	Name:    "github",
-	// 	Command: "npx",
-	// 	Args:    []string{"-y", "@modelcontextprotocol/server-github"},
-	// }))
+	// Explicitly Register the Wand (Discovery Tool) which needs the registry itself
+	wand := NewToolDiscoveryTool(r)
+	r.Register(wand)
 
+	// Sync to load tools from providers
 	_ = r.Sync(context.Background())
 	return r
 }

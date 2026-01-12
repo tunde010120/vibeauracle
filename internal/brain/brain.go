@@ -199,8 +199,12 @@ func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 	// 2. Perceive: Receive request + SystemSnapshot
 	snapshot, _ := b.monitor.GetSnapshot()
 
-	// 3. Tool Awareness
-	toolDefs := b.tools.GetPromptDefinitions()
+	// 3. Tool Awareness (Smart Handshake)
+	// We start with ONLY the core tools (including the Wand) to reduce context noise.
+	// If the agent needs more, it will use the Wand to find them.
+	// We also might carry over tool definitions from previous turns if this is a specialized agent loop,
+	// but for now, we stick to the core + handshake philosophy.
+	toolDefs := b.tools.GetPromptDefinitions(tooling.CoreTools())
 
 	// 4. Update Rolling Context Window
 	b.memory.AddToWindow(req.ID, req.Content, "user_prompt")

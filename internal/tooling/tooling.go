@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/nathfavour/vibeauracle/sys"
@@ -188,12 +189,47 @@ func DefaultRegistry(f sys.FS, m *sys.Monitor, guard *SecurityGuard) *Registry {
 // of all tools to be injected into a model's prompt.
 // GetPromptDefinitions returns a detailed, schema-rich definition of all tools
 // to be injected into a model's prompt, ensuring the agent knows EXACTLY how to use them.
-func (r *Registry) GetPromptDefinitions() string {
+// Search returns tools matching the query (name/desc/category).
+func (r *Registry) Search(query string) []Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	query = strings.ToLower(query)
+	var matches []Tool
+
+	for _, t := range r.tools {
+		m := t.Metadata()
+		if strings.Contains(strings.ToLower(m.Name), query) ||
+			strings.Contains(strings.ToLower(m.Description), query) ||
+			strings.Contains(strings.ToLower(string(m.Category)), query) {
+			matches = append(matches, t)
+		}
+	}
+	return matches
+}
+
+// GetPromptDefinitions returns a schema-rich definition.
+// If subset is nil, returns all. If subset is provided, returns only those tools.
+func (r *Registry) GetPromptDefinitions(subset []string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var sb string
-	for _, t := range r.tools {
+	var targets []Tool
+
+	if len(subset) == 0 {
+		for _, t := range r.tools {
+			targets = append(targets, t)
+		}
+	} else {
+		for _, name := range subset {
+			if t, ok := r.tools[name]; ok {
+				targets = append(targets, t)
+			}
+		}
+	}
+
+	for _, t := range targets {
 		m := t.Metadata()
 
 		// Metadata Header
@@ -213,4 +249,15 @@ func (r *Registry) GetPromptDefinitions() string {
 		sb += "---\n"
 	}
 	return sb
+}
+
+// CoreTools returns the list of names for "always-on" tools.
+func CoreTools() []string {
+	return []string{
+		"sys_read_file",
+		"sys_write_file",
+		"sys_shell_exec", // Engineers need this
+		"sys_tool_wand",  // The Handshake
+		"sys_info",       // Situational awareness
+	}
 }
