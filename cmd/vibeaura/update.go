@@ -333,6 +333,9 @@ func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 		return false
 	}
 
+	// If we don't know our own commit, we can't do SHA-based comparison
+	localCommitUnknown := Commit == "" || Commit == "none"
+
 	// 1. Try Semantic Versioning comparison
 	vLocal := Version
 	if !strings.HasPrefix(vLocal, "v") && semver.IsValid("v"+vLocal) {
@@ -347,24 +350,39 @@ func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 		return semver.Compare(vRemote, vLocal) > 0
 	}
 
-	// 2. Rolling tags logic (latest/beta)
+	// 2. Rolling tags logic (latest/beta/branch names)
 	// If the tags match, we MUST compare SHAs to know if there's a new build.
 	if latest.TagName == Version && Version != "" && Version != "dev" {
+		if localCommitUnknown {
+			// Can't compare SHAs, assume up-to-date
+			return false
+		}
 		return latest.ActualSHA != "" && latest.ActualSHA != Commit
 	}
 
-	// 3. Fallback: if we are in a dev build, we usually don't want auto-update prompts
-	// when in silent mode (startup/background check).
+	// 3. Dev builds: skip auto-update in silent mode
 	if silent && (Version == "dev" || strings.HasPrefix(Version, "dev-")) {
 		return false
 	}
 
-	// 4. If we are manual (/update), or on a real version, any difference is an update.
+	// 4. If version names differ and we're not on a dev build, it might be an update
+	// But only if we can actually verify via SHA
 	if latest.TagName != Version {
-		return true
+		// For dev builds, don't report updates unless manual
+		if Version == "dev" || strings.HasPrefix(Version, "dev-") {
+			return !silent // Only report if manual check
+		}
+		// For other mismatches, check SHA
+		if localCommitUnknown {
+			return false // Can't verify
+		}
+		return latest.ActualSHA != Commit
 	}
 
-	// If same version name but different SHAs, it's an update (unless we explicitly blocked it)
+	// Same version, compare SHAs
+	if localCommitUnknown {
+		return false
+	}
 	return latest.ActualSHA != "" && latest.ActualSHA != Commit
 }
 
