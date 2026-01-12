@@ -216,6 +216,15 @@ var sysStatsCmd = &cobra.Command{
 	},
 }
 
+var restartCmd = &cobra.Command{
+	Use:   "restart",
+	Short: "Restart the vibeaura application",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("🔄 Restarting vibeaura...")
+		restartSelf()
+	},
+}
+
 func main() {
 	rootCmd.PersistentFlags().StringVar(&resumeStateFile, "resume-state", "", "Internal use: resume state from file")
 	rootCmd.PersistentFlags().MarkHidden("resume-state")
@@ -231,6 +240,8 @@ func main() {
 
 	rootCmd.AddCommand(sysCmd)
 	sysCmd.AddCommand(sysStatsCmd)
+
+	rootCmd.AddCommand(restartCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
