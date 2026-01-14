@@ -86,6 +86,36 @@ fi
 
 echo "Resolved version: $LATEST_TAG"
 
+# Check if vibeaura is already installed and up-to-date
+EXISTING_VIBE=""
+if command -v vibeaura >/dev/null 2>&1; then
+    EXISTING_VIBE=$(command -v vibeaura)
+else
+    # Check common locations
+    [ -x "$HOME/.local/bin/vibeaura" ] && EXISTING_VIBE="$HOME/.local/bin/vibeaura"
+    [ -x "/usr/local/bin/vibeaura" ] && EXISTING_VIBE="/usr/local/bin/vibeaura"
+    [ -x "$HOME/go/bin/vibeaura" ] && EXISTING_VIBE="$HOME/go/bin/vibeaura"
+    [ -x "$HOME/bin/vibeaura" ] && EXISTING_VIBE="$HOME/bin/vibeaura"
+fi
+
+if [ -n "$EXISTING_VIBE" ]; then
+    LOCAL_VERSION=$("$EXISTING_VIBE" version | grep "Version" | awk '{print $3}' || true)
+    LOCAL_COMMIT=$("$EXISTING_VIBE" version | grep "Commit" | awk '{print $3}' || true)
+    
+    # Resolve the SHA of the latest tag to be sure
+    LATEST_SHA=""
+    if [ -n "$LATEST_TAG" ] && command -v git >/dev/null 2>&1; then
+        LATEST_SHA=$(git ls-remote --tags "https://github.com/$REPO.git" | grep "refs/tags/$LATEST_TAG$" | awk '{print $1}' || true)
+    fi
+
+    # If the local version matches the latest tag, OR the local commit matches the latest SHA, we can skip
+    if { [ -n "$LOCAL_VERSION" ] && [ "$LOCAL_VERSION" = "$LATEST_TAG" ]; } || \
+       { [ -n "$LOCAL_COMMIT" ] && [ -n "$LATEST_SHA" ] && [ "$LOCAL_COMMIT" = "$LATEST_SHA" ]; }; then
+        echo "Vibe Auracle is already up to date ($LATEST_TAG / ${LOCAL_COMMIT:0:7})."
+        exit 0
+    fi
+fi
+
 DOWNLOAD_URL="$GITHUB_URL/releases/download/$LATEST_TAG/$BINARY_NAME"
 
 echo "Downloading $BINARY_NAME ($LATEST_TAG)..."

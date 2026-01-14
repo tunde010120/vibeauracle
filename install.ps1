@@ -24,6 +24,40 @@ if (-not $LatestTag) {
     Write-Error "Could not find latest release. Please check $GithubUrl/releases"
 }
 
+# Check if vibeaura is already installed and up-to-date
+$ExistingVibe = $null
+if (Get-Command vibeaura -ErrorAction SilentlyContinue) {
+    $ExistingVibe = (Get-Command vibeaura).Source
+} elseif (Test-Path "$HOME\.vibeaura\bin\vibeaura.exe") {
+    $ExistingVibe = "$HOME\.vibeaura\bin\vibeaura.exe"
+}
+
+if ($ExistingVibe) {
+    $VersionOutput = (& $ExistingVibe version)
+    $VersionLine = ($VersionOutput | Select-String "Version")
+    $CommitLine = ($VersionOutput | Select-String "Commit")
+    
+    if ($VersionLine -and $CommitLine) {
+        $LocalVersion = $VersionLine.ToString().Split(":")[1].Trim()
+        $LocalCommit = $CommitLine.ToString().Split(":")[1].Trim()
+        
+        # Resolve the SHA of the latest tag to be sure
+        $LatestSHA = $null
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            $Match = (git ls-remote --tags "$GithubUrl.git" | Select-String "refs/tags/$LatestTag$")
+            if ($Match) {
+                $LatestSHA = $Match.ToString().Split("`t")[0].Trim()
+            }
+        }
+
+        # If the local version matches the latest tag, OR the local commit matches the latest SHA, we can skip
+        if (($LocalVersion -eq $LatestTag) -or ($null -ne $LatestSHA -and $LocalCommit -eq $LatestSHA)) {
+            Write-Host "Vibe Auracle is already up to date ($LatestTag / $($LocalCommit.Substring(0,7)))." -ForegroundColor Green
+            return
+        }
+    }
+}
+
 $DownloadUrl = "$GithubUrl/releases/download/$LatestTag/$BinaryName"
 
 Write-Host "Downloading $BinaryName ($LatestTag)..." -ForegroundColor Cyan
