@@ -367,22 +367,22 @@ func isUpdateAvailable(latest *releaseInfo, silent bool) bool {
 	}
 
 	// 4. If version names differ and we're not on a dev build, it might be an update
-	// But only if we can actually verify via SHA
 	if latest.TagName != Version {
 		// For dev builds, don't report updates unless manual
 		if Version == "dev" || strings.HasPrefix(Version, "dev-") {
 			return !silent // Only report if manual check
 		}
-		// For other mismatches, check SHA
-		if localCommitUnknown {
-			return false // Can't verify
+		// For other mismatches, if remote SHA is known, check it
+		if latest.ActualSHA != "" && latest.ActualSHA != Commit {
+			return true
 		}
-		return latest.ActualSHA != Commit
+		// If SHAs are unknown but tag names differ, assume update
+		return true
 	}
 
-	// Same version, compare SHAs
+	// Same version name, compare SHAs
 	if localCommitUnknown {
-		return false
+		return false // Exactly the same tag and unknown commit, can't verify
 	}
 	return latest.ActualSHA != "" && latest.ActualSHA != Commit
 }
@@ -1021,14 +1021,13 @@ func updateFromSource(branch string, cm *sys.ConfigManager) (bool, error) {
 		}
 
 		// Get remote SHA
-		remoteCmd := exec.Command("git", "-C", sourceRoot, "rev-parse", "origin/"+branch)
-		remoteSHABytes, err := remoteCmd.Output()
+		remoteSHA, err := getBranchCommitSHA(branch)
 		if err != nil {
 			return false, fmt.Errorf("getting remote SHA: %w", err)
 		}
-		remoteSHA := strings.TrimSpace(string(remoteSHABytes))
 
-		if remoteSHA == Commit && !strings.HasPrefix(Version, "dev") {
+		// Check if we already have this commit
+		if remoteSHA == Commit {
 			return false, nil
 		}
 
@@ -1072,8 +1071,7 @@ func buildAndInstallFromSource(sourceRoot, branch string, cm *sys.ConfigManager)
 	localCommit := strings.TrimSpace(string(commitSHABytes))
 
 	// Final check: if the localCommit we just pulled/checked out matches current Commit, no update needed.
-	// This covers cases where 'remoteSHA' was fetched but we are already running that code.
-	if localCommit == Commit && !strings.HasPrefix(Version, "dev") {
+	if localCommit == Commit {
 		return false, nil
 	}
 

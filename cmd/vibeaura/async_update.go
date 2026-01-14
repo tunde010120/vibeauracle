@@ -137,17 +137,19 @@ func checkForUpdateSimple(cfg *sys.Config) (bool, *releaseInfo) {
 	return false, nil
 }
 
-// getLocalCommit tries to get the current commit hash.
-// First tries `git rev-parse HEAD`, falls back to embedded Commit variable.
+// getLocalCommit tries to get the current commit hash of the running binary.
+// It prioritizes the embedded Commit variable to ensure we check the binary's state,
+// not the repository state if running from source.
 func getLocalCommit() string {
-	// Try git first (most accurate for dev/source builds)
-	if out, err := execGitCommand("rev-parse", "HEAD"); err == nil {
-		return strings.TrimSpace(out)
-	}
-
-	// Fall back to embedded commit (for installed binaries)
 	if Commit != "" && Commit != "none" {
 		return Commit
+	}
+
+	// Fallback to git only if we are in dev mode and embedded commit is missing
+	if strings.HasPrefix(Version, "dev") {
+		if out, err := execGitCommand("rev-parse", "HEAD"); err == nil {
+			return strings.TrimSpace(out)
+		}
 	}
 
 	return ""
