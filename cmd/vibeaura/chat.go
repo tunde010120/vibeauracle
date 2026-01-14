@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 	"github.com/nathfavour/vibeauracle/brain"
+	"github.com/nathfavour/vibeauracle/tooling"
 )
 
 type focus int
@@ -63,6 +65,18 @@ type model struct {
 	updater       *AsyncUpdateManager
 	updateReady   bool
 	updateVersion string
+
+	// Action Confirmation / Intervention
+	pendingIntervention *interventionState
+}
+
+// interventionState holds data for a pending user confirmation.
+type interventionState struct {
+	title     string
+	choices   []string
+	selected  int
+	resume    func(choice string) (interface{}, error)
+	requestID string // To track the original request
 }
 
 var (
@@ -123,6 +137,27 @@ var (
 	inactiveBorder = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), true).
 			BorderForeground(lipgloss.Color("#444444"))
+
+	// Intervention/Approval selector styles
+	interventionBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#FF8C00")).
+				Padding(1, 2).
+				MarginTop(1)
+
+	interventionTitleStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF8C00")).
+				Bold(true)
+
+	interventionChoiceStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#AAAAAA")).
+				PaddingLeft(2)
+
+	interventionSelectedStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#FAFAFA")).
+					Background(lipgloss.Color("#FF8C00")).
+					Bold(true).
+					PaddingLeft(2)
 )
 
 type chatState struct {
@@ -428,6 +463,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle active focus
 		switch m.focus {
 		case focusChat:
+			// Intervention handling takes priority
+			if m.pendingIntervention != nil {
+				return m.handleInterventionKey(msg)
+			}
 			return m.handleChatKey(msg)
 		case focusPerusal:
 			return m.handlePerusalKey(msg)
@@ -438,6 +477,24 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case brain.Response:
 		m.isThinking = false
 		if msg.Error != nil {
+			// Check if this is an intervention request
+			var interventionErr *tooling.InterventionError
+			if errors.As(msg.Error, &interventionErr) {
+				// Set up the intervention state
+				m.pendingIntervention = &interventionState{
+					title:    interventionErr.Title,
+					choices:  interventionErr.Choices,
+					selected: 0,
+					resume: func(choice string) (interface{}, error) {
+						return interventionErr.Resume(choice)
+					},
+					requestID: uuid.NewString(),
+				}
+				m.messages = append(m.messages, m.renderInterventionSelector())
+				m.viewport.SetContent(m.renderMessages())
+				m.viewport.GotoBottom()
+				return m, nil // Wait for user input
+			}
 			m.messages = append(m.messages, errorStyle.Render(" BRAIN ERROR ")+"\n"+msg.Error.Error())
 		} else {
 			m.messages = append(m.messages, aiStyle.Render("Brain: ")+m.styleMessage(msg.Content))
@@ -479,6 +536,25 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, subtleStyle.Render("✅  Vibeauracle is already up to date."))
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
+
+	case interventionResultMsg:
+		m.isThinking = false
+		if msg.err != nil {
+			m.messages = append(m.messages, errorStyle.Render(" ACTION ERROR ")+"\n"+msg.err.Error())
+		} else if result, ok := msg.result.(*tooling.ToolResult); ok {
+			if result.Error != nil {
+				m.messages = append(m.messages, errorStyle.Render(" TOOL ERROR ")+"\n"+result.Error.Error())
+			} else {
+				m.messages = append(m.messages, aiStyle.Render("Tool: ")+m.styleMessage(result.Content))
+			}
+		} else if result != nil {
+			m.messages = append(m.messages, aiStyle.Render("Result: ")+fmt.Sprintf("%v", msg.result))
+		} else {
+			m.messages = append(m.messages, subtleStyle.Render("✓ Action completed"))
+		}
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		m.saveState()
 	}
 
 	// 5. Check for Hot-Swap Opportunity
@@ -1564,6 +1640,115 @@ func (m *model) pullOllamaModel(name string) tea.Cmd {
 			return brain.Response{Error: err}
 		}
 		return brain.Response{Content: "Successfully pulled " + name + ". You can now use it with /models /use ollama " + name}
+	}
+}
+
+// --- Intervention / Action Confirmation UI ---
+
+// interventionResultMsg is sent after the user makes a choice in an intervention.
+type interventionResultMsg struct {
+	result interface{}
+	err    error
+}
+
+// handleInterventionKey handles arrow key navigation and selection for the intervention UI.
+func (m *model) handleInterventionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.pendingIntervention == nil {
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		m.pendingIntervention.selected--
+		if m.pendingIntervention.selected < 0 {
+			m.pendingIntervention.selected = len(m.pendingIntervention.choices) - 1
+		}
+		// Re-render the selector in place
+		m.updateInterventionDisplay()
+		return m, nil
+
+	case "down", "j":
+		m.pendingIntervention.selected++
+		if m.pendingIntervention.selected >= len(m.pendingIntervention.choices) {
+			m.pendingIntervention.selected = 0
+		}
+		m.updateInterventionDisplay()
+		return m, nil
+
+	case "enter":
+		// User confirmed their choice
+		choice := m.pendingIntervention.choices[m.pendingIntervention.selected]
+		resumeFn := m.pendingIntervention.resume
+		m.pendingIntervention = nil
+
+		// Remove the intervention UI from messages
+		if len(m.messages) > 0 {
+			m.messages = m.messages[:len(m.messages)-1]
+		}
+
+		// Show what the user chose
+		m.messages = append(m.messages, subtleStyle.Render("→ "+choice))
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+
+		// Resume the agent loop
+		m.isThinking = true
+		return m, m.resumeIntervention(resumeFn, choice)
+
+	case "esc":
+		// User cancelled
+		m.pendingIntervention = nil
+		if len(m.messages) > 0 {
+			m.messages = m.messages[:len(m.messages)-1]
+		}
+		m.messages = append(m.messages, subtleStyle.Render("→ Action cancelled"))
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// updateInterventionDisplay re-renders the intervention selector in place.
+func (m *model) updateInterventionDisplay() {
+	if len(m.messages) > 0 {
+		m.messages[len(m.messages)-1] = m.renderInterventionSelector()
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+	}
+}
+
+// renderInterventionSelector creates the visual intervention selector box.
+func (m *model) renderInterventionSelector() string {
+	if m.pendingIntervention == nil {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, interventionTitleStyle.Render("⚠️  "+m.pendingIntervention.title))
+	lines = append(lines, "")
+	lines = append(lines, helpStyle.Render("Use ↑/↓ to navigate, Enter to confirm, Esc to cancel"))
+	lines = append(lines, "")
+
+	for i, choice := range m.pendingIntervention.choices {
+		prefix := "  "
+		style := interventionChoiceStyle
+		if i == m.pendingIntervention.selected {
+			prefix = "▶ "
+			style = interventionSelectedStyle
+		}
+		lines = append(lines, style.Render(prefix+choice))
+	}
+
+	return interventionBoxStyle.Render(strings.Join(lines, "\n"))
+}
+
+// resumeIntervention resumes the agent loop after the user makes a choice.
+func (m *model) resumeIntervention(resumeFn func(string) (interface{}, error), choice string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := resumeFn(choice)
+		return interventionResultMsg{result: result, err: err}
 	}
 }
 
