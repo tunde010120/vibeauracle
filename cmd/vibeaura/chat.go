@@ -1120,7 +1120,10 @@ func (m *model) processRequest(content string) tea.Cmd {
 			ID:      uuid.NewString(),
 			Content: content,
 		}
-		resp, _ := m.brain.Process(ctx, req)
+		resp, err := m.brain.Process(ctx, req)
+		if err != nil {
+			resp.Error = err
+		}
 		return resp
 	}
 }

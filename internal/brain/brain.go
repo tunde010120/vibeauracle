@@ -207,6 +207,12 @@ func (b *Brain) SetModel(provider, name string) error {
 func (b *Brain) Process(ctx context.Context, req Request) (Response, error) {
 	tooling.ReportStatus("🧠", "think", "Processing request...")
 
+	// Early check for model
+	if b.model == nil {
+		tooling.ReportStatus("❌", "error", "No AI model configured")
+		return Response{}, fmt.Errorf("no AI model configured. Run 'vibeaura auth' to set up a provider")
+	}
+
 	// 1. Session & Thread Management
 	sessionID := "default" // In a real app, this would come from the request
 	session, ok := b.sessions[sessionID]
