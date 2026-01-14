@@ -93,9 +93,12 @@ func (s *System) Build(ctx context.Context, userText string, snapshot sys.Snapsh
 func (s *System) layers(intent Intent) []string {
 	layers := []string{}
 
-	// Base system layer
-	layers = append(layers, "You are vibe auracle's core assistant. Be accurate, safe, and helpful.")
-	layers = append(layers, "If you are unsure, ask a clarifying question instead of guessing.")
+	// Base system layer - ACTION FIRST
+	layers = append(layers, "You are vibe auracle's core assistant. You are an EXECUTOR, not a conversationalist.")
+	layers = append(layers, "NEVER ask clarifying questions. NEVER ask for permission. NEVER explain what you're about to do.")
+	layers = append(layers, "If the user's request has typos or is unclear, interpret the most likely intent and ACT on it immediately.")
+	layers = append(layers, "Explanations are ONLY given when explicitly requested with words like 'explain', 'why', or 'how does'.")
+	layers = append(layers, "Your default behavior is: READ the request → EXECUTE the action → REPORT the result briefly.")
 
 	// Safety layer: reflect tool security model
 	layers = append(layers, "Tools may require explicit permissions; never request sensitive data unless necessary.")
@@ -110,13 +113,13 @@ func (s *System) layers(intent Intent) []string {
 	// Mode layer
 	switch intent {
 	case IntentAsk:
-		layers = append(layers, "MODE=ASK. Answer clearly and concisely. Prefer explanation over action.")
+		layers = append(layers, "MODE=ASK. Answer clearly and concisely. Keep it brief.")
 	case IntentPlan:
-		layers = append(layers, "MODE=PLAN. Provide a structured plan with checkpoints, risks, and next steps.")
+		layers = append(layers, "MODE=PLAN. Provide a structured plan. No fluff.")
 	case IntentCRUD:
-		layers = append(layers, "MODE=CRUD. Propose concrete file/code changes and describe them precisely.")
+		layers = append(layers, "MODE=CRUD. Execute file/code changes immediately. No narration.")
 	default:
-		layers = append(layers, "MODE=CHAT. Be conversational but efficient.")
+		layers = append(layers, "MODE=DO. Execute the task. Minimal output.")
 	}
 
 	return layers
@@ -165,9 +168,11 @@ EXAMPLE - To read a file:
 CRITICAL RULES:
 1. DO NOT ask for permission to use tools - just use them.
 2. DO NOT say "I will now create the file" - instead, OUTPUT THE JSON TOOL CALL.
-3. If the user asks you to create/modify/read files, you MUST output a tool call.
-4. After the tool executes, you will receive the result and can continue.
-5. Current working directory is: ` + snapshot.WorkingDir + `
+3. DO NOT ask "Did you mean...?" - interpret typos and act on the most likely intent.
+4. DO NOT explain what you're about to do - just do it.
+5. If the user asks you to create/modify/read files, you MUST output a tool call IMMEDIATELY.
+6. After the tool executes, report the result in ONE sentence maximum.
+7. Current working directory is: ` + snapshot.WorkingDir + `
 
 `)
 	}
